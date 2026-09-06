@@ -12,10 +12,11 @@ import (
 	"time"
 	"unsafe"
 
+	"floatreader/assets"
 	w "floatreader/internal/win32"
 )
 
-// --smoke-test runs the real native windows and OS hotkeys under Windows / Wine.
+// --smoke-test checks the windows and OS hotkeys under Windows / Wine.
 // Results and screenshots go beside the executable in qa/.
 type Smoke struct {
 	phase      int
@@ -81,8 +82,7 @@ func (s *Smoke) step(a *App) {
 		s.check("topmost style", w.U("GetWindowLongPtrW", a.hwnd, w.Signed(-20))&w.WS_EX_TOPMOST != 0)
 		s.check("no title bar", w.U("GetWindowLongPtrW", a.hwnd, w.Signed(-16))&0xc00000 == 0)
 		s.shot(a.hwnd, "01-welcome")
-		text := "山海来信\n\n第一章  风从山谷来\n\n九月的第一场雨，落在天亮以前。\n\n林予推开窗，远处的山脊像一封尚未拆开的信。巷口的早餐铺已经亮了灯，热气从蒸笼里升起来，把清晨的街道染得柔软。\n\n她把昨夜读到一半的书放进帆布包，沿着石阶往下走。今天没有什么特别的安排，她只是想去看看，那条传说中通往海边的小路。\n\n“等一下。”身后有人叫她。\n\n老人递来一把蓝色的伞，说：“山里的天气，和人心一样，偶尔也会改变主意。”\n\n"
-		text += strings.Repeat("风吹过树梢，纸页轻轻翻动。故事还在继续，每一步都有新的风景。The quiet road leads towards the sea. 🌿\n\n", 120)
+		text := assets.SampleNovel
 		path := filepath.Join(s.dir, "山海来信.txt")
 		os.WriteFile(path, []byte(text), 0600)
 		s.check("UTF-8 import", a.openBook(path, 0, false), "pages=", len(a.pages))
@@ -197,7 +197,7 @@ func (s *Smoke) step(a *App) {
 		a.save()
 		saved := loadConfig(a.configPath)
 		s.check("preferences and reading progress persist", saved.Keys == a.cfg.Keys && len(saved.Recent) > 0 && saved.Recent[0].Offset == a.anchor)
-		// Restore the polished default reading view for the final screenshot.
+		// Restore the default theme and first page before taking the screenshot.
 		c := defaults()
 		a.cfg = c
 		a.rebuildFonts()
@@ -239,7 +239,7 @@ func (s *Smoke) step(a *App) {
 		a.rebuildFonts()
 		w.U("SetWindowPos", a.hwnd, w.Topmost, 0, 0, 460, 580, w.SWP_NOMOVE|w.SWP_NOACTIVATE)
 	case 21:
-		large := strings.Repeat("山间的风带来一封信，故事沿着小路继续。\n", 50000)
+		large := strings.Repeat("分页测试。", 200000)
 		a.text = []rune(large)
 		a.anchor = 0
 		started := time.Now()

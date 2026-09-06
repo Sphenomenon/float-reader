@@ -41,7 +41,7 @@ func TestPaginationPreservesAllText(t *testing.T) {
 }
 
 func TestResizeKeepsReadingAnchor(t *testing.T) {
-	rs := Normalize(strings.Repeat("山间的风带来一封信。", 100))
+	rs := Normalize(strings.Repeat("用一段中文检查分页。", 100))
 	old := Paginate(rs, 12, 5, 0, mono)
 	anchor := old[7].Start
 	for _, w := range []int{1, 7, 20, 100} {

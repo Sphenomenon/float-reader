@@ -90,7 +90,7 @@ func (a *App) registerKeys(c Config) error {
 			for _, j := range registered {
 				w.U("UnregisterHotKey", a.hwnd, uintptr(100+j))
 			}
-			return fmt.Errorf("%s 的 %s 无法注册，可能已被其他软件占用，请换一个组合", actionNames[i], keyName(k))
+			return fmt.Errorf("%s 无法使用 %s，可能已被其他软件占用，请换一组按键", actionNames[i], keyName(k))
 		}
 		registered = append(registered, i)
 	}
@@ -176,7 +176,7 @@ func (a *App) contextMenu(tray bool) {
 		add(1, "隐藏阅读窗口\t"+keyName(a.cfg.Keys[actBoss]))
 	}
 	add(2, "导入 TXT…\t"+keyName(a.cfg.Keys[actImport]))
-	add(3, "阅读与快捷键设置…")
+	add(3, "设置…")
 	sep()
 	add(4, "上一页\t"+keyName(a.cfg.Keys[actPrevious]))
 	add(5, "下一页\t"+keyName(a.cfg.Keys[actNext]))

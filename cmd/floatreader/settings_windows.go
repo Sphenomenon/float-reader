@@ -64,7 +64,7 @@ func (a *App) openSettings() {
 	}
 	a.settingsFont = w.G("CreateFontW", w.Signed(-a.spx(14)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(w.Str(face))))
 	width, height := a.spx(594), a.spx(718)
-	// A compact layout remains reachable at 1366 × 768 with standard scaling.
+	// Keep the entire dialog inside the monitor's work area.
 	x := clamp(int(r.Left)+(r.Width()-width)/2, int(work.Left), max(int(work.Left), int(work.Right)-width))
 	y := clamp(int(r.Top)+(r.Height()-height)/2, int(work.Top), max(int(work.Top), int(work.Bottom)-height))
 	a.dialog = w.U("CreateWindowExW", w.WS_EX_TOPMOST|w.WS_EX_TOOLWINDOW|w.WS_EX_CONTROLPARENT, uintptr(unsafe.Pointer(w.Str(settingsClass))), uintptr(unsafe.Pointer(w.Str("阅读设置 · 隅读"))), w.WS_POPUP|w.WS_BORDER, w.Signed(x), w.Signed(y), uintptr(width), uintptr(height), a.hwnd, 0, a.instance, 0)
@@ -74,7 +74,7 @@ func (a *App) openSettings() {
 		return
 	}
 	a.control("STATIC", "阅读设置", 0, 26, 21, 240, 32, 0)
-	a.control("STATIC", "调整好你的阅读角落。保存后立即生效。", 0, 26, 57, 540, 22, 0)
+	a.control("STATIC", "修改后点击“保存设置”。", 0, 26, 57, 540, 22, 0)
 	a.edit("窗口宽度", strconv.Itoa(a.cfg.Width), 26, 99, 122, fWidth)
 	a.edit("窗口高度", strconv.Itoa(a.cfg.Height), 164, 99, 122, fHeight)
 	a.edit("字号", strconv.Itoa(a.cfg.FontSize), 302, 99, 122, fFont)
@@ -83,13 +83,13 @@ func (a *App) openSettings() {
 	a.edit("不透明度 %", strconv.Itoa(a.cfg.Opacity), 208, 170, 164, fOpacity)
 	a.control("STATIC", "阅读配色", 0, 390, 170, 172, 22, 0)
 	theme := a.control("COMBOBOX", "", w.WS_TABSTOP|3|0x200000, 390, 195, 172, 140, fTheme)
-	for _, s := range []string{"纸间 · 暖白", "夜航 · 深色", "晴空 · 雾蓝"} {
+	for _, s := range []string{"暖白", "深色", "浅蓝"} {
 		w.U("SendMessageW", theme, 0x143, 0, uintptr(unsafe.Pointer(w.Str(s))))
 	}
 	w.U("SendMessageW", theme, 0x14e, uintptr(a.cfg.Theme), 0)
-	a.control("STATIC", "按字数调整会自动匹配窗口大小；拖动边缘后恢复按区域自适应。", 0, 26, 237, 540, 22, 0)
+	a.control("STATIC", "修改字数会调整窗口大小；拉伸窗口后，字数随窗口大小变化。", 0, 26, 237, 540, 22, 0)
 	a.control("STATIC", "快捷键", 0, 26, 282, 220, 25, 0)
-	a.control("STATIC", "点击右侧输入框，再按下希望使用的按键或组合键。", 0, 26, 310, 540, 22, 0)
+	a.control("STATIC", "点击输入框，直接按下新快捷键。", 0, 26, 310, 540, 22, 0)
 	for i, name := range actionNames {
 		y := 344 + i*38
 		a.control("STATIC", name, 0, 26, y+5, 275, 26, 0)
@@ -97,11 +97,11 @@ func (a *App) openSettings() {
 		old := w.U("SetWindowLongPtrW", h, w.Signed(-4), keyProcPtr)
 		a.editOld[h] = old
 	}
-	a.control("BUTTON", "在其他软件中也能用翻页快捷键", w.WS_TABSTOP|3, 26, 546, 536, 28, fGlobal)
+	a.control("BUTTON", "在其他软件里也能翻页", w.WS_TABSTOP|3, 26, 546, 536, 28, fGlobal)
 	if a.cfg.GlobalNav {
 		w.U("SendMessageW", a.fields[fGlobal], 0xf1, 1, 0)
 	}
-	a.control("STATIC", "老板键始终全局有效。全局翻页会占用对应按键，建议加修饰键。", 0, 26, 578, 540, 23, 0)
+	a.control("STATIC", "老板键随时可用。全局翻页建议用 Ctrl / Alt / Shift 组合。", 0, 26, 578, 540, 23, 0)
 	a.control("STATIC", "", 0, 26, 610, 540, 34, fStatus)
 	a.control("BUTTON", "恢复默认", w.WS_TABSTOP, 26, 663, 106, 32, fReset)
 	a.control("BUTTON", "取消", w.WS_TABSTOP, 330, 663, 106, 32, fCancel)
@@ -136,7 +136,7 @@ func (a *App) applySettings() bool {
 	read := func(id, lo, hi int, name string) (int, error) {
 		n, err := strconv.Atoi(w.Text(a.fields[id]))
 		if err != nil || n < lo || n > hi {
-			return 0, fmt.Errorf("%s请输入 %d–%d 之间的整数", name, lo, hi)
+			return 0, fmt.Errorf("%s应为 %d–%d 的整数", name, lo, hi)
 		}
 		return n, nil
 	}
@@ -178,7 +178,7 @@ func (a *App) applySettings() bool {
 		line := c.FontSize * c.LineSpace / 100
 		maximum := max(1, (maxW-56)/c.FontSize) * max(1, (maxH-154)/line)
 		if chars > maximum {
-			a.settingsError(fmt.Sprintf("当前屏幕与字号最多约容纳 %d 字，请减少字数或缩小字号。", maximum))
+			a.settingsError(fmt.Sprintf("当前屏幕和字号最多能放下约 %d 字，请减少字数或缩小字号。", maximum))
 			return false
 		}
 		c.Height = max(230, 154+rows*line)
@@ -220,7 +220,7 @@ func (a *App) resetSettings() {
 	for i, k := range c.Keys {
 		w.SetText(a.fields[300+i], keyName(k))
 	}
-	w.SetText(a.fields[fStatus], "已填入默认设置，点击“保存设置”后生效。")
+	w.SetText(a.fields[fStatus], "已恢复默认值，点击“保存设置”生效。")
 }
 
 func settingsProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
@@ -296,7 +296,7 @@ func keyProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			a.draftKeys[id] = Hotkey{uint32(wp), currentMods()}
 			w.SetText(hwnd, keyName(a.draftKeys[id]))
 			w.U("SendMessageW", hwnd, 0xb1, 0, ^uintptr(0))
-			w.SetText(a.fields[fStatus], "点击“保存设置”应用快捷键，并检查是否被其他软件占用。")
+			w.SetText(a.fields[fStatus], "点击“保存设置”生效。如果按键已被占用，会提示修改。")
 		}
 		return 0
 	case w.WM_CHAR, 0x106:
@@ -309,6 +309,3 @@ func keyProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	}
 	return w.U("DefWindowProcW", hwnd, uintptr(msg), wp, lp)
 }
-
-// Keep the compiler checking that uintptr-sized handles are used by this ABI.
-var _ = unsafe.Sizeof(uintptr(0))

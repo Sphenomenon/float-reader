@@ -29,8 +29,8 @@ func Normalize(s string) []rune {
 	return []rune(s)
 }
 
-// Paginate consumes every rune exactly once. Limit is an optional character
-// ceiling, in addition to the physical line/width limits, never an overflow hint.
+// Paginate consumes every rune exactly once. Limit caps the page's character
+// count as well as its width and number of lines.
 func Paginate(text []rune, width, rows, limit int, fit Fit) []Page {
 	if width < 1 {
 		width = 1

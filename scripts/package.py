@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'dist'
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 
 
 def write_zip(path, entries):

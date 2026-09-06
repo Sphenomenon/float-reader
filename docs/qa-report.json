@@ -15,7 +15,7 @@
   {
     "name": "UTF-8 import",
     "passed": true,
-    "detail": "pages=42"
+    "detail": "pages=10"
   },
   {
     "name": "GBK import",
@@ -132,7 +132,7 @@
   {
     "name": "custom global next works with another window focused",
     "passed": true,
-    "detail": "offset=198 previous=131"
+    "detail": "offset=194 previous=121"
   },
   {
     "name": "boss key works while another window is focused",
@@ -174,7 +174,7 @@
   {
     "name": "settings fit available screen at 200 percent UI scale",
     "passed": true,
-    "detail": "{21 0 899 1062}"
+    "detail": "{-1678 0 -490 1436}"
   },
   {
     "name": "screenshot: 06-settings-scaled",
@@ -184,7 +184,7 @@
   {
     "name": "million-character novel paginates without losing text",
     "passed": true,
-    "detail": "1000000 characters, 4167 pages, 58ms"
+    "detail": "1000000 characters, 4167 pages, 1.212s"
   },
   {
     "name": "empty TXT rejected without replacing book",

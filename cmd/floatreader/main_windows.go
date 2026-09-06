@@ -415,7 +415,7 @@ func decodeText(data []byte) (string, string, error) {
 func (a *App) openBook(path string, offset int, report bool) bool {
 	info, err := os.Stat(path)
 	if err == nil && info.IsDir() {
-		err = fmt.Errorf("请选择 TXT 文件，而不是文件夹")
+		err = fmt.Errorf("选中的是文件夹，请选择 TXT 文件")
 	}
 	if err == nil && info.Size() > 32*1024*1024 {
 		err = fmt.Errorf("文件超过 32 MB，请分卷导入")
@@ -429,7 +429,7 @@ func (a *App) openBook(path string, offset int, report bool) bool {
 		s, encoding, err = decodeText(data)
 	}
 	if err == nil && strings.TrimSpace(s) == "" {
-		err = fmt.Errorf("这个文件没有可阅读的内容")
+		err = fmt.Errorf("文件里没有文字")
 	}
 	if err != nil {
 		if report {

@@ -46,13 +46,13 @@ func (a *App) paint(hwnd uintptr) {
 	pad := a.px(28)
 	width := r.Width()
 	height := r.Height()
-	// A quiet masthead doubles as the drag handle.
+	// The header is also the window's drag area.
 	a.roundRect(dc, w.Rect{Left: int32(pad), Top: int32(a.px(22)), Right: int32(pad + a.px(6)), Bottom: int32(a.px(40))}, p.Accent, a.px(4))
 	a.label(dc, "隅读", a.uiFont, p.Accent, pad+a.px(16), a.px(18), a.px(56), a.px(27), w.DT_SINGLELINE|w.DT_VCENTER)
 	a.label(dc, "始终置顶", a.smallFont, p.Muted, pad+a.px(78), a.px(19), a.px(80), a.px(26), w.DT_SINGLELINE|w.DT_VCENTER)
 	a.roundRect(dc, w.Rect{Left: int32(width - a.px(77)), Top: int32(a.px(19)), Right: int32(width - a.px(20)), Bottom: int32(a.px(47))}, p.Soft, a.px(10))
 	a.label(dc, "设置", a.smallFont, p.Accent, width-a.px(76), a.px(19), a.px(56), a.px(28), w.DT_CENTER|w.DT_SINGLELINE|w.DT_VCENTER)
-	subtitle := "拖动上方移动 · 拖动边缘调整大小"
+	subtitle := "拖动顶部移动，拖动边缘缩放"
 	if a.bookName != "" {
 		subtitle = a.bookName
 	}
@@ -65,15 +65,15 @@ func (a *App) paint(hwnd uintptr) {
 			a.label(dc, "读", a.titleFont, p.Accent, width/2-a.px(25), cy-a.px(134), a.px(50), a.px(50), w.DT_CENTER|w.DT_VCENTER|w.DT_SINGLELINE)
 		}
 		titleY := max(a.px(87), cy-a.px(58))
-		a.label(dc, "把故事，留在手边。", a.titleFont, p.Ink, pad, titleY, width-2*pad, a.px(36), w.DT_CENTER|w.DT_SINGLELINE)
+		a.label(dc, "还没有打开小说", a.titleFont, p.Ink, pad, titleY, width-2*pad, a.px(36), w.DT_CENTER|w.DT_SINGLELINE)
 		if height >= a.px(300) {
-			a.label(dc, "导入 TXT，开始一段安静的阅读", a.smallFont, p.Muted, pad, cy-a.px(17), width-2*pad, a.px(22), w.DT_CENTER|w.DT_SINGLELINE)
+			a.label(dc, "选择一个 TXT 文件开始阅读", a.smallFont, p.Muted, pad, cy-a.px(17), width-2*pad, a.px(22), w.DT_CENTER|w.DT_SINGLELINE)
 		}
 		b := a.importButton()
 		a.roundRect(dc, w.Rect{Left: int32(b.x), Top: int32(b.y), Right: int32(b.x + b.width), Bottom: int32(b.y + b.height)}, p.Accent, a.px(12))
 		a.label(dc, "＋  导入 TXT", a.uiFont, p.BG, b.x, b.y, b.width, b.height, w.DT_CENTER|w.DT_SINGLELINE|w.DT_VCENTER)
 		if height >= a.px(350) {
-			a.label(dc, "也可以把文件拖到这里", a.smallFont, p.Muted, pad, b.y+b.height+a.px(14), width-2*pad, a.px(22), w.DT_CENTER|w.DT_SINGLELINE)
+			a.label(dc, "也可以把 TXT 拖进窗口", a.smallFont, p.Muted, pad, b.y+b.height+a.px(14), width-2*pad, a.px(22), w.DT_CENTER|w.DT_SINGLELINE)
 		}
 		a.label(dc, "隐藏 / 显示  "+keyName(a.cfg.Keys[actBoss]), a.smallFont, p.Muted, pad, height-a.px(39), width-2*pad, a.px(22), w.DT_CENTER|w.DT_SINGLELINE)
 	} else if len(a.pages) > 0 {
