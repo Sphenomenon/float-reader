@@ -1,0 +1,193 @@
+[
+  {
+    "name": "topmost style",
+    "passed": true
+  },
+  {
+    "name": "no title bar",
+    "passed": true
+  },
+  {
+    "name": "screenshot: 01-welcome",
+    "passed": true,
+    "detail": "<nil>"
+  },
+  {
+    "name": "UTF-8 import",
+    "passed": true,
+    "detail": "pages=42"
+  },
+  {
+    "name": "GBK import",
+    "passed": true,
+    "detail": "中文小说"
+  },
+  {
+    "name": "UTF-16 import",
+    "passed": true,
+    "detail": "中文"
+  },
+  {
+    "name": "empty file rejection",
+    "passed": true
+  },
+  {
+    "name": "screenshot: 02-reading",
+    "passed": true,
+    "detail": "<nil>"
+  },
+  {
+    "name": "native right-arrow input advances exactly one page",
+    "passed": true,
+    "detail": "page=1"
+  },
+  {
+    "name": "native up-arrow input returns to previous page",
+    "passed": true,
+    "detail": "page=0"
+  },
+  {
+    "name": "global boss key hides native window",
+    "passed": true
+  },
+  {
+    "name": "hidden window does not change page",
+    "passed": true
+  },
+  {
+    "name": "same global boss key restores native window",
+    "passed": true
+  },
+  {
+    "name": "screenshot: 03-settings",
+    "passed": true,
+    "detail": "<nil>"
+  },
+  {
+    "name": "shortcut recorder captures keyboard input",
+    "passed": true
+  },
+  {
+    "name": "boss key also hides settings",
+    "passed": true
+  },
+  {
+    "name": "boss key restores settings",
+    "passed": true
+  },
+  {
+    "name": "invalid dimensions rejected",
+    "passed": true
+  },
+  {
+    "name": "numeric dimensions and font saved",
+    "passed": true
+  },
+  {
+    "name": "width height applied",
+    "passed": true,
+    "detail": "{0 0 500 530}"
+  },
+  {
+    "name": "editable page character count",
+    "passed": true
+  },
+  {
+    "name": "character cap never overflows",
+    "passed": true
+  },
+  {
+    "name": "moving the window preserves manual character limit",
+    "passed": true
+  },
+  {
+    "name": "resize restores adaptive pagination",
+    "passed": true
+  },
+  {
+    "name": "border drag resize hit testing",
+    "passed": true
+  },
+  {
+    "name": "header drag move hit testing",
+    "passed": true
+  },
+  {
+    "name": "duplicate shortcuts rejected",
+    "passed": true
+  },
+  {
+    "name": "occupied global shortcut rejected and rolled back",
+    "passed": true
+  },
+  {
+    "name": "custom global navigation settings",
+    "passed": true
+  },
+  {
+    "name": "screenshot: 04-dark-adaptive",
+    "passed": true,
+    "detail": "<nil>"
+  },
+  {
+    "name": "custom global next works with another window focused",
+    "passed": true,
+    "detail": "offset=198 previous=131"
+  },
+  {
+    "name": "boss key works while another window is focused",
+    "passed": true
+  },
+  {
+    "name": "global navigation while hidden cannot advance",
+    "passed": true
+  },
+  {
+    "name": "restore after external focus",
+    "passed": true
+  },
+  {
+    "name": "preferences and reading progress persist",
+    "passed": true
+  },
+  {
+    "name": "screenshot: 05-final",
+    "passed": true,
+    "detail": "<nil>"
+  },
+  {
+    "name": "native TXT file picker opens",
+    "passed": true
+  },
+  {
+    "name": "boss key hides native file picker",
+    "passed": true
+  },
+  {
+    "name": "boss key restores native file picker",
+    "passed": true
+  },
+  {
+    "name": "file picker cancellation restores reader",
+    "passed": true
+  },
+  {
+    "name": "settings fit available screen at 200 percent UI scale",
+    "passed": true,
+    "detail": "{21 0 899 1062}"
+  },
+  {
+    "name": "screenshot: 06-settings-scaled",
+    "passed": true,
+    "detail": "<nil>"
+  },
+  {
+    "name": "million-character novel paginates without losing text",
+    "passed": true,
+    "detail": "1000000 characters, 4167 pages, 58ms"
+  },
+  {
+    "name": "empty TXT rejected without replacing book",
+    "passed": true
+  }
+]
