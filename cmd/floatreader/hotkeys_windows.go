@@ -177,6 +177,9 @@ func (a *App) contextMenu(tray bool) {
 	}
 	add(2, "导入 TXT…\t"+keyName(a.cfg.Keys[actImport]))
 	add(3, "设置…")
+	if !tray && a.cfg.Opacity == 0 {
+		add(7, "移动窗口…")
+	}
 	sep()
 	add(4, "上一页\t"+keyName(a.cfg.Keys[actPrevious]))
 	add(5, "下一页\t"+keyName(a.cfg.Keys[actNext]))
@@ -215,13 +218,16 @@ func (a *App) contextMenu(tray bool) {
 			a.closeSettings()
 		}
 		w.U("DestroyWindow", a.hwnd)
+	case 7:
+		w.U("ReleaseCapture")
+		w.U("SendMessageW", a.hwnd, 0xa1, 2, 0) // WM_NCLBUTTONDOWN, HTCAPTION
 	default:
 		if id >= 20 && id < 20+len(a.cfg.Recent) {
 			if a.hidden {
 				a.toggle()
 			}
 			m := a.cfg.Recent[id-20]
-			a.openBook(m.Path, m.Offset, true)
+			a.openBook(m.Path, 0, true)
 		}
 	}
 }

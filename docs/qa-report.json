@@ -10,22 +10,26 @@
   {
     "name": "screenshot: 01-welcome",
     "passed": true,
-    "detail": "<nil>"
+    "detail": "\u003cnil\u003e"
   },
   {
     "name": "UTF-8 import",
     "passed": true,
-    "detail": "pages=10"
+    "detail": "first page characters=121"
   },
   {
-    "name": "GBK import",
+    "name": "chunked GBK import",
     "passed": true,
-    "detail": "中文小说"
+    "detail": "error= text=中文小说"
   },
   {
-    "name": "UTF-16 import",
+    "name": "chunked UTF-16 import",
     "passed": true,
     "detail": "中文"
+  },
+  {
+    "name": "return to UTF-8 sample",
+    "passed": true
   },
   {
     "name": "empty file rejection",
@@ -34,7 +38,7 @@
   {
     "name": "screenshot: 02-reading",
     "passed": true,
-    "detail": "<nil>"
+    "detail": "\u003cnil\u003e"
   },
   {
     "name": "native right-arrow input advances exactly one page",
@@ -61,7 +65,7 @@
   {
     "name": "screenshot: 03-settings",
     "passed": true,
-    "detail": "<nil>"
+    "detail": "\u003cnil\u003e"
   },
   {
     "name": "shortcut recorder captures keyboard input",
@@ -89,6 +93,16 @@
     "detail": "{0 0 500 530}"
   },
   {
+    "name": "zero opacity enables text-only color-key transparency",
+    "passed": true,
+    "detail": "color=010001 flags=1"
+  },
+  {
+    "name": "screenshot: 03-text-only",
+    "passed": true,
+    "detail": "\u003cnil\u003e"
+  },
+  {
     "name": "editable page character count",
     "passed": true
   },
@@ -99,6 +113,11 @@
   {
     "name": "moving the window preserves manual character limit",
     "passed": true
+  },
+  {
+    "name": "moving the window does not reload text",
+    "passed": true,
+    "detail": "reads=11"
   },
   {
     "name": "resize restores adaptive pagination",
@@ -127,12 +146,12 @@
   {
     "name": "screenshot: 04-dark-adaptive",
     "passed": true,
-    "detail": "<nil>"
+    "detail": "\u003cnil\u003e"
   },
   {
     "name": "custom global next works with another window focused",
     "passed": true,
-    "detail": "offset=194 previous=121"
+    "detail": "offset=908 previous=553"
   },
   {
     "name": "boss key works while another window is focused",
@@ -153,7 +172,7 @@
   {
     "name": "screenshot: 05-final",
     "passed": true,
-    "detail": "<nil>"
+    "detail": "\u003cnil\u003e"
   },
   {
     "name": "native TXT file picker opens",
@@ -174,17 +193,17 @@
   {
     "name": "settings fit available screen at 200 percent UI scale",
     "passed": true,
-    "detail": "{-1678 0 -490 1436}"
+    "detail": "{21 0 899 1062}"
   },
   {
     "name": "screenshot: 06-settings-scaled",
     "passed": true,
-    "detail": "<nil>"
+    "detail": "\u003cnil\u003e"
   },
   {
-    "name": "million-character novel paginates without losing text",
+    "name": "million-character novel loads one bounded chunk",
     "passed": true,
-    "detail": "1000000 characters, 4167 pages, 1.212s"
+    "detail": "1000000 characters, first page=240, peak read=65536 bytes, 9ms"
   },
   {
     "name": "empty TXT rejected without replacing book",

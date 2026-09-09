@@ -32,6 +32,20 @@ func Normalize(s string) []rune {
 // Paginate consumes every rune exactly once. Limit caps the page's character
 // count as well as its width and number of lines.
 func Paginate(text []rune, width, rows, limit int, fit Fit) []Page {
+	return paginate(text, width, rows, limit, fit, false)
+}
+
+// PaginatePage lays out only the first page. Full reports whether the page
+// stopped because its rows or character limit were filled. Callers can use it
+// with a small text window and load more text only when full is false.
+func PaginatePage(text []rune, width, rows, limit int, fit Fit) (page Page, full bool) {
+	pages := paginate(text, width, rows, limit, fit, true)
+	page = pages[0]
+	full = page.End < len(text) || len(page.Lines) >= max(1, rows) || limit > 0 && page.End-page.Start >= limit
+	return page, full
+}
+
+func paginate(text []rune, width, rows, limit int, fit Fit, firstOnly bool) []Page {
 	if width < 1 {
 		width = 1
 	}
@@ -91,6 +105,9 @@ func Paginate(text []rune, width, rows, limit int, fit Fit) []Page {
 		}
 		p.End = pos
 		pages = append(pages, p)
+		if firstOnly {
+			break
+		}
 	}
 	if len(pages) == 0 {
 		pages = append(pages, Page{})

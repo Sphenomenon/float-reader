@@ -11,8 +11,11 @@ type Hotkey struct {
 	Mods uint32 `json:"modifiers"`
 }
 type BookMark struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset"`
+	Path       string  `json:"path"`
+	Offset     int     `json:"offset,omitempty"`
+	ByteOffset int64   `json:"byte_offset,omitempty"`
+	Page       int     `json:"page,omitempty"`
+	Trail      []int64 `json:"trail,omitempty"`
 }
 type Config struct {
 	Width      int        `json:"width"`
@@ -47,7 +50,7 @@ func loadConfig(path string) Config {
 	c.Height = clamp(c.Height, 230, 2000)
 	c.FontSize = clamp(c.FontSize, 14, 40)
 	c.LineSpace = clamp(c.LineSpace, 120, 220)
-	c.Opacity = clamp(c.Opacity, 35, 100)
+	c.Opacity = clamp(c.Opacity, 0, 100)
 	c.Theme = clamp(c.Theme, 0, 2)
 	c.CharLimit = clamp(c.CharLimit, 0, 20000)
 	for i, k := range c.Keys {

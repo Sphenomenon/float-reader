@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +8,6 @@ import (
 	"strings"
 	"syscall"
 	"unicode/utf16"
-	"unicode/utf8"
 	"unsafe"
 
 	"floatreader/internal/reader"
@@ -50,6 +48,10 @@ var hideOwnedProcPtr = syscall.NewCallback(func(hwnd, lp uintptr) uintptr {
 
 type Palette struct{ BG, Ink, Muted, Accent, Soft, Line uintptr }
 
+type layoutSignature struct {
+	width, height, fontSize, lineSpace, charLimit, dpi int
+}
+
 var palettes = []Palette{
 	{w.RGB(247, 244, 236), w.RGB(43, 52, 46), w.RGB(121, 128, 116), w.RGB(51, 105, 78), w.RGB(232, 236, 222), w.RGB(221, 225, 213)},
 	{w.RGB(30, 36, 35), w.RGB(222, 226, 215), w.RGB(145, 157, 145), w.RGB(157, 197, 153), w.RGB(47, 57, 51), w.RGB(62, 73, 64)},
@@ -66,10 +68,15 @@ type App struct {
 	settingsFont                           uintptr
 	hiddenOwned                            []uintptr
 	bodyFont, uiFont, smallFont, titleFont uintptr
-	text                                   []rune
-	pages                                  []reader.Page
-	page, anchor                           int
+	book                                   *bookSource
+	view                                   loadedPage
+	page                                   int
+	anchor                                 int64
+	history                                []int64
+	historyPos                             int
+	lastLayout                             layoutSignature
 	path, bookName, encoding               string
+	lastOpenError                          string
 	hidden, modal, sizing, dirty           bool
 	resizeChanged                          bool
 	startSize                              w.Size
@@ -176,7 +183,7 @@ func main() {
 	}
 	if len(app.cfg.Recent) > 0 {
 		mark := app.cfg.Recent[0]
-		app.openBook(mark.Path, mark.Offset, false)
+		app.openBook(mark.Path, 0, false)
 	}
 	for _, arg := range os.Args[1:] {
 		if !strings.HasPrefix(arg, "--") {
@@ -248,7 +255,11 @@ func (a *App) rebuildFonts() {
 	a.titleFont = a.newFont(22, 600)
 }
 func (a *App) applyAppearance() {
-	w.U("SetLayeredWindowAttributes", a.hwnd, 0, uintptr(a.cfg.Opacity*255/100), 2)
+	if a.cfg.Opacity == 0 {
+		w.U("SetLayeredWindowAttributes", a.hwnd, transparentKey, 255, 1)
+	} else {
+		w.U("SetLayeredWindowAttributes", a.hwnd, 0, uintptr(a.cfg.Opacity*255/100), 2)
+	}
 	// Rounded corners where Windows 11 supports them; no standard title bar.
 	v := uint32(2)
 	p := w.Dwm.NewProc("DwmSetWindowAttribute")
@@ -264,13 +275,18 @@ func (a *App) ensureOnScreen() {
 	y := clamp(int(r.Top), int(work.Top), int(work.Bottom)-height)
 	w.U("SetWindowPos", a.hwnd, w.Topmost, w.Signed(x), w.Signed(y), uintptr(width), uintptr(height), w.SWP_NOACTIVATE)
 }
-func (a *App) paginate() {
-	if a.bodyFont == 0 {
-		return
-	}
+func (a *App) layout() layoutSignature {
+	r := a.contentRect()
+	return layoutSignature{r.Width(), r.Height(), a.cfg.FontSize, a.cfg.LineSpace, a.cfg.CharLimit, a.dpi}
+}
+func (a *App) layoutPage(book *bookSource, start int64) (loadedPage, error) {
 	r := a.contentRect()
 	dc := w.U("GetDC", a.hwnd)
 	old := w.G("SelectObject", dc, a.bodyFont)
+	defer func() {
+		w.G("SelectObject", dc, old)
+		w.U("ReleaseDC", a.hwnd, dc)
+	}()
 	fit := func(rs []rune, width int) int {
 		if len(rs) == 0 {
 			return 0
@@ -296,34 +312,61 @@ func (a *App) paginate() {
 		}
 		return count
 	}
-	a.pages = reader.Paginate(a.text, r.Width(), max(1, r.Height()/a.lineHeight()), a.cfg.CharLimit, fit)
-	w.G("SelectObject", dc, old)
-	w.U("ReleaseDC", a.hwnd, dc)
-	a.page = reader.PageAt(a.pages, a.anchor)
+	return book.loadPage(start, r.Width(), max(1, r.Height()/a.lineHeight()), a.cfg.CharLimit, fit)
+}
+func (a *App) paginate() {
+	if a.bodyFont == 0 || a.book == nil {
+		return
+	}
+	sig := a.layout()
+	if sig == a.lastLayout && a.view.Start == a.anchor && len(a.view.Text) > 0 {
+		a.invalidate()
+		return
+	}
+	view, err := a.layoutPage(a.book, a.anchor)
+	if err != nil {
+		a.notify("读取失败：" + err.Error())
+		return
+	}
+	a.view = view
+	a.anchor = view.Start
+	a.lastLayout = sig
 	a.invalidate()
 }
 func (a *App) turn(delta int) {
 	if a.modal || a.hidden {
 		return
 	}
-	if len(a.text) == 0 {
+	if a.book == nil {
 		a.notify("先导入一本 TXT 小说")
 		return
 	}
-	n := clamp(a.page+delta, 0, len(a.pages)-1)
-	if n == a.page {
-		if delta > 0 {
+	if delta > 0 {
+		if a.view.EOF || a.view.End <= a.view.Start {
 			a.notify("已经读到最后一页")
-		} else {
-			a.notify("已经是第一页")
+			return
 		}
-		return
+		next := a.view.End
+		if a.historyPos+1 < len(a.history) && a.history[a.historyPos+1] == next {
+			a.historyPos++
+		} else {
+			a.history = append(append([]int64(nil), a.history[:a.historyPos+1]...), next)
+			a.historyPos++
+		}
+		a.anchor = next
+		a.page++
+	} else {
+		if a.historyPos <= 0 {
+			a.notify("已经是当前记录的第一页")
+			return
+		}
+		a.historyPos--
+		a.anchor = a.history[a.historyPos]
+		a.page = max(0, a.page-1)
 	}
-	a.page = n
-	a.anchor = a.pages[n].Start
 	a.dirty = true
 	a.toast = ""
-	a.invalidate()
+	a.paginate()
 }
 func (a *App) save() {
 	r := w.Bounds(a.hwnd)
@@ -333,7 +376,11 @@ func (a *App) save() {
 	a.cfg.Width = a.dip(r.Width())
 	a.cfg.Height = a.dip(r.Height())
 	if a.path != "" {
-		marks := []BookMark{{a.path, a.anchor}}
+		trail := append([]int64(nil), a.history...)
+		if len(trail) > 64 {
+			trail = trail[len(trail)-64:]
+		}
+		marks := []BookMark{{Path: a.path, Offset: int(a.anchor), ByteOffset: a.anchor, Page: a.page, Trail: trail}}
 		for _, m := range a.cfg.Recent {
 			if m.Path != a.path && len(marks) < 8 {
 				marks = append(marks, m)
@@ -379,84 +426,78 @@ func (a *App) toggle() {
 	}
 }
 
-func decodeText(data []byte) (string, string, error) {
-	if len(data) >= 2 && (data[0] == 0xff && data[1] == 0xfe || data[0] == 0xfe && data[1] == 0xff) {
-		if len(data)%2 != 0 {
-			return "", "", fmt.Errorf("UTF-16 文件长度异常，可能未下载完整")
-		}
-		u := make([]uint16, (len(data)-2)/2)
-		le := data[0] == 0xff
-		for i := range u {
-			if le {
-				u[i] = binary.LittleEndian.Uint16(data[2+i*2:])
-			} else {
-				u[i] = binary.BigEndian.Uint16(data[2+i*2:])
+func (a *App) openBook(path string, offset int, report bool) bool {
+	mark := BookMark{Path: path, Offset: offset}
+	if offset == 0 {
+		for _, recent := range a.cfg.Recent {
+			if strings.EqualFold(recent.Path, path) {
+				mark = recent
+				break
 			}
 		}
-		return string(utf16.Decode(u)), "UTF-16", nil
 	}
-	if utf8.Valid(data) {
-		return string(data), "UTF-8", nil
-	}
-	if len(data) == 0 {
-		return "", "UTF-8", nil
-	}
-	for _, cp := range []uintptr{54936, 936} {
-		n := w.K("MultiByteToWideChar", cp, 8, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), 0, 0)
-		if n == 0 {
-			continue
+	book, err := openBookSource(path)
+	anchor := bookContentStart(book)
+	if err == nil {
+		if mark.ByteOffset > 0 {
+			anchor = clamp64(mark.ByteOffset, book.contentStart, book.size)
+		} else if mark.Offset > 0 {
+			anchor, err = book.byteOffsetForRune(mark.Offset)
 		}
-		u := make([]uint16, n)
-		w.K("MultiByteToWideChar", cp, 8, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), uintptr(unsafe.Pointer(&u[0])), n)
-		return string(utf16.Decode(u)), "GB18030 / GBK", nil
 	}
-	return "", "", fmt.Errorf("无法识别文字编码，请将文件另存为 UTF-8 或 GB18030 后再导入")
-}
-func (a *App) openBook(path string, offset int, report bool) bool {
-	info, err := os.Stat(path)
-	if err == nil && info.IsDir() {
-		err = fmt.Errorf("选中的是文件夹，请选择 TXT 文件")
-	}
-	if err == nil && info.Size() > 32*1024*1024 {
-		err = fmt.Errorf("文件超过 32 MB，请分卷导入")
-	}
-	var data []byte
+	var view loadedPage
 	if err == nil {
-		data, err = os.ReadFile(path)
+		view, err = a.layoutPage(book, anchor)
 	}
-	var s, encoding string
-	if err == nil {
-		s, encoding, err = decodeText(data)
-	}
-	if err == nil && strings.TrimSpace(s) == "" {
+	if err == nil && len(view.Text) == 0 && view.EOF {
 		err = fmt.Errorf("文件里没有文字")
 	}
 	if err != nil {
+		a.lastOpenError = err.Error()
+		if book != nil {
+			book.Close()
+		}
 		if report {
 			w.Message(a.hwnd, "导入失败：\n"+err.Error(), appTitle, 0x30)
 		}
 		return false
 	}
+	a.lastOpenError = ""
 	if a.path != "" {
 		a.save()
 	}
-	if offset == 0 {
-		for _, m := range a.cfg.Recent {
-			if strings.EqualFold(m.Path, path) {
-				offset = m.Offset
-				break
-			}
-		}
+	if a.book != nil {
+		a.book.Close()
 	}
+	a.book = book
 	a.path = path
 	a.bookName = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	a.encoding = encoding
-	a.text = reader.Normalize(s)
-	a.anchor = clamp(offset, 0, max(0, len(a.text)-1))
-	a.paginate()
+	a.encoding = book.encodingLabel
+	a.anchor = view.Start
+	a.view = view
+	a.page = max(0, mark.Page)
+	a.history = a.history[:0]
+	for _, start := range mark.Trail {
+		if start >= book.contentStart && start < a.anchor {
+			a.history = append(a.history, start)
+		}
+	}
+	a.history = append(a.history, a.anchor)
+	a.historyPos = len(a.history) - 1
+	a.lastLayout = a.layout()
+	a.invalidate()
 	a.save()
 	return true
 }
+
+func bookContentStart(book *bookSource) int64 {
+	if book == nil {
+		return 0
+	}
+	return book.contentStart
+}
+
+func clamp64(v, lo, hi int64) int64 { return min(hi, max(lo, v)) }
 func (a *App) importBook() {
 	if a.modal {
 		return
@@ -620,7 +661,7 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			a.openSettings()
 			return 0
 		}
-		if len(a.text) == 0 {
+		if a.book == nil {
 			if a.importButton().contains(x, y) {
 				a.importBook()
 			}
@@ -672,6 +713,9 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		return 0
 	case w.WM_DESTROY:
 		a.save()
+		if a.book != nil {
+			a.book.Close()
+		}
 		a.removeTray()
 		for i := 0; i < 5; i++ {
 			w.U("UnregisterHotKey", hwnd, uintptr(100+i))

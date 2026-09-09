@@ -87,7 +87,7 @@ func (a *App) openSettings() {
 		w.U("SendMessageW", theme, 0x143, 0, uintptr(unsafe.Pointer(w.Str(s))))
 	}
 	w.U("SendMessageW", theme, 0x14e, uintptr(a.cfg.Theme), 0)
-	a.control("STATIC", "修改字数会调整窗口大小；拉伸窗口后，字数随窗口大小变化。", 0, 26, 237, 540, 22, 0)
+	a.control("STATIC", "透明度设为 0 时只显示正文；右键或快捷键仍可打开设置。", 0, 26, 237, 540, 22, 0)
 	a.control("STATIC", "快捷键", 0, 26, 282, 220, 25, 0)
 	a.control("STATIC", "点击输入框，直接按下新快捷键。", 0, 26, 310, 540, 22, 0)
 	for i, name := range actionNames {
@@ -144,7 +144,7 @@ func (a *App) applySettings() bool {
 		id, lo, hi int
 		name       string
 		out        *int
-	}{{fWidth, 320, 2000, "宽度", &c.Width}, {fHeight, 230, 2000, "高度", &c.Height}, {fFont, 14, 40, "字号", &c.FontSize}, {fSpacing, 120, 220, "行距", &c.LineSpace}, {fOpacity, 35, 100, "不透明度", &c.Opacity}} {
+	}{{fWidth, 320, 2000, "宽度", &c.Width}, {fHeight, 230, 2000, "高度", &c.Height}, {fFont, 14, 40, "字号", &c.FontSize}, {fSpacing, 120, 220, "行距", &c.LineSpace}, {fOpacity, 0, 100, "不透明度", &c.Opacity}} {
 		n, err := read(v.id, v.lo, v.hi, v.name)
 		if err != nil {
 			a.settingsError(err.Error())

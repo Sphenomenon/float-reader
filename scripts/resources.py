@@ -26,15 +26,15 @@ def block(key, value=b"", children=(), kind=1, value_length=None):
 
 
 def version():
-    fixed = pack("<13I", 0xFEEF04BD, 0x10000, 0x10000, 0x10000, 0x10000, 0x10000,
+    fixed = pack("<13I", 0xFEEF04BD, 0x10000, 0x10000, 0x20000, 0x10000, 0x20000,
                  0x3F, 0, 0x40004, 1, 0, 0, 0)
     fields = {
         "FileDescription": "隅读 · 无边框悬浮小说阅读器",
-        "FileVersion": "1.0.1.0",
+        "FileVersion": "1.0.2.0",
         "InternalName": "FloatReader",
         "OriginalFilename": "FloatReader.exe",
         "ProductName": "隅读 · Float Reader",
-        "ProductVersion": "1.0.1",
+        "ProductVersion": "1.0.2",
         "LegalCopyright": "Copyright © 2026 Float Reader",
     }
     strings = block("StringFileInfo", children=[block("080404B0", children=[

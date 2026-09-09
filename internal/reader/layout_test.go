@@ -53,6 +53,18 @@ func TestResizeKeepsReadingAnchor(t *testing.T) {
 	}
 }
 
+func TestPaginatePageStopsAfterFirstPage(t *testing.T) {
+	text := Normalize(strings.Repeat("分片读取。", 1000))
+	page, full := PaginatePage(text, 8, 3, 0, mono)
+	if !full || page.Start != 0 || len(page.Lines) != 3 || page.End >= len(text) {
+		t.Fatalf("unexpected first page: %+v full=%t", page, full)
+	}
+	short, full := PaginatePage(Normalize("短句。"), 20, 3, 0, mono)
+	if full || short.End != 3 {
+		t.Fatalf("short text should need more input: %+v full=%t", short, full)
+	}
+}
+
 func TestNormalization(t *testing.T) {
 	got := string(Normalize("\ufeff甲\r\n乙\r丙\x00\t丁"))
 	if got != "甲\n乙\n丙    丁" {

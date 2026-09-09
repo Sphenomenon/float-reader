@@ -21,7 +21,7 @@ import (
 type Smoke struct {
 	phase      int
 	checks     []Check
-	before     int
+	before     int64
 	dir        string
 	dummy      uintptr
 	fileDialog uintptr
@@ -85,29 +85,31 @@ func (s *Smoke) step(a *App) {
 		text := assets.SampleNovel
 		path := filepath.Join(s.dir, "山海来信.txt")
 		os.WriteFile(path, []byte(text), 0600)
-		s.check("UTF-8 import", a.openBook(path, 0, false), "pages=", len(a.pages))
-		gbk, _, err := decodeText([]byte{0xd6, 0xd0, 0xce, 0xc4, 0xd0, 0xa1, 0xcb, 0xb5})
-		s.check("GBK import", err == nil && gbk == "中文小说", gbk)
-		ut, _, err := decodeText([]byte{0xff, 0xfe, 0x2d, 0x4e, 0x87, 0x65})
-		s.check("UTF-16 import", err == nil && ut == "中文", ut)
+		s.check("UTF-8 import", a.openBook(path, 0, false), "first page characters=", a.view.Layout.End)
+		gbkPath := filepath.Join(s.dir, "gbk.txt")
+		os.WriteFile(gbkPath, []byte{0xd6, 0xd0, 0xce, 0xc4, 0xd0, 0xa1, 0xcb, 0xb5}, 0600)
+		gbkLoaded := a.openBook(gbkPath, 0, false)
+		s.check("chunked GBK import", gbkLoaded && string(a.view.Text) == "中文小说", "error=", a.lastOpenError, " text=", string(a.view.Text))
+		utf16Path := filepath.Join(s.dir, "utf16.txt")
+		os.WriteFile(utf16Path, []byte{0xff, 0xfe, 0x2d, 0x4e, 0x87, 0x65}, 0600)
+		s.check("chunked UTF-16 import", a.openBook(utf16Path, 0, false) && string(a.view.Text) == "中文", string(a.view.Text))
+		s.check("return to UTF-8 sample", a.openBook(path, 0, false))
 		s.check("empty file rejection", !a.openBook(filepath.Join(s.dir, "missing.txt"), 0, false))
 	case 1:
 		s.shot(a.hwnd, "02-reading")
-		s.before = a.page
+		s.before = int64(a.page)
 		w.U("SendMessageW", a.hwnd, w.WM_KEYDOWN, uintptr(a.cfg.Keys[actNext].Key), 0)
-		s.check("native right-arrow input advances exactly one page", a.page == s.before+1, "page=", a.page)
+		s.check("native right-arrow input advances exactly one page", int64(a.page) == s.before+1, "page=", a.page)
 	case 2:
-		a.page = min(1, len(a.pages)-1)
-		a.anchor = a.pages[a.page].Start
 		w.U("SendMessageW", a.hwnd, w.WM_KEYDOWN, w.VK_UP, 0)
 		s.check("native up-arrow input returns to previous page", a.page == 0, "page=", a.page)
 	case 3:
 		press(a.cfg.Keys[actBoss])
 	case 4:
 		s.check("global boss key hides native window", a.hidden && w.U("IsWindowVisible", a.hwnd) == 0)
-		s.before = a.page
+		s.before = int64(a.page)
 		a.turn(1)
-		s.check("hidden window does not change page", a.page == s.before)
+		s.check("hidden window does not change page", int64(a.page) == s.before)
 		press(a.cfg.Keys[actBoss])
 	case 5:
 		s.check("same global boss key restores native window", !a.hidden && w.U("IsWindowVisible", a.hwnd) != 0)
@@ -129,32 +131,39 @@ func (s *Smoke) step(a *App) {
 		w.SetText(a.fields[fWidth], "500")
 		w.SetText(a.fields[fHeight], "530")
 		w.SetText(a.fields[fFont], "22")
+		w.SetText(a.fields[fOpacity], "0")
 		s.check("numeric dimensions and font saved", a.applySettings())
 		r := w.Bounds(a.hwnd)
 		s.check("width height applied", a.dip(r.Width()) == 500 && a.dip(r.Height()) == 530, r)
+		var colorKey, flags uint32
+		var alpha byte
+		layered := w.U("GetLayeredWindowAttributes", a.hwnd, uintptr(unsafe.Pointer(&colorKey)), uintptr(unsafe.Pointer(&alpha)), uintptr(unsafe.Pointer(&flags)))
+		s.check("zero opacity enables text-only color-key transparency", layered != 0 && colorKey == uint32(transparentKey) && flags&1 != 0, fmt.Sprintf("color=%06x flags=%d", colorKey, flags))
+		s.shot(a.hwnd, "03-text-only")
 		a.openSettings()
 		w.SetText(a.fields[fChars], "80")
 		s.check("editable page character count", a.applySettings())
 	case 9:
 		ok := true
-		for _, p := range a.pages {
-			if p.End-p.Start > 80 {
+		for range 5 {
+			if a.view.Layout.End > 80 {
 				ok = false
 			}
+			a.turn(1)
 		}
 		s.check("character cap never overflows", ok && a.cfg.CharLimit == 80)
+		readsBeforeMove := a.book.readCalls
 		w.U("SendMessageW", a.hwnd, w.WM_ENTERSIZEMOVE, 0, 0)
 		rmove := w.Bounds(a.hwnd)
 		w.U("SetWindowPos", a.hwnd, 0, w.Signed(int(rmove.Left)+4), w.Signed(int(rmove.Top)+4), 0, 0, w.SWP_NOSIZE|w.SWP_NOZORDER|w.SWP_NOACTIVATE)
 		w.U("SendMessageW", a.hwnd, w.WM_EXITSIZEMOVE, 0, 0)
 		s.check("moving the window preserves manual character limit", a.cfg.CharLimit == 80)
-		a.page = min(3, len(a.pages)-1)
-		a.anchor = a.pages[a.page].Start
+		s.check("moving the window does not reload text", a.book.readCalls == readsBeforeMove, fmt.Sprintf("reads=%d", a.book.readCalls))
 		s.before = a.anchor
 		w.U("SendMessageW", a.hwnd, w.WM_ENTERSIZEMOVE, 0, 0)
 		w.U("SetWindowPos", a.hwnd, 0, 0, 0, uintptr(a.px(430)), uintptr(a.px(540)), w.SWP_NOMOVE|w.SWP_NOZORDER)
 		w.U("SendMessageW", a.hwnd, w.WM_EXITSIZEMOVE, 0, 0)
-		s.check("resize restores adaptive pagination", a.cfg.CharLimit == 0 && a.pages[a.page].Start <= s.before && a.pages[a.page].End > s.before)
+		s.check("resize restores adaptive pagination", a.cfg.CharLimit == 0 && a.view.Start == s.before && a.view.End > s.before)
 		r := w.Bounds(a.hwnd)
 		lp := uintptr(uint16(r.Left+2)) | uintptr(uint16(r.Top+2))<<16
 		s.check("border drag resize hit testing", w.U("SendMessageW", a.hwnd, w.WM_NCHITTEST, 0, lp) == 13)
@@ -173,6 +182,7 @@ func (s *Smoke) step(a *App) {
 		a.draftKeys[actPrevious] = Hotkey{w.VK_LEFT, 6}
 		w.U("SendMessageW", a.fields[fGlobal], 0xf1, 1, 0)
 		w.U("SendMessageW", a.fields[fTheme], 0x14e, 1, 0)
+		w.SetText(a.fields[fOpacity], "100")
 		s.check("custom global navigation settings", a.applySettings())
 	case 10:
 		s.shot(a.hwnd, "04-dark-adaptive")
@@ -187,22 +197,26 @@ func (s *Smoke) step(a *App) {
 	case 12:
 		s.check("boss key works while another window is focused", a.hidden)
 		press(a.cfg.Keys[actNext])
-		s.before = a.page
+		s.before = int64(a.page)
 	case 13:
-		s.check("global navigation while hidden cannot advance", s.before == a.page)
+		s.check("global navigation while hidden cannot advance", s.before == int64(a.page))
 		press(a.cfg.Keys[actBoss])
 	case 14:
 		w.U("DestroyWindow", s.dummy)
 		s.check("restore after external focus", !a.hidden)
 		a.save()
 		saved := loadConfig(a.configPath)
-		s.check("preferences and reading progress persist", saved.Keys == a.cfg.Keys && len(saved.Recent) > 0 && saved.Recent[0].Offset == a.anchor)
+		s.check("preferences and reading progress persist", saved.Keys == a.cfg.Keys && len(saved.Recent) > 0 && saved.Recent[0].ByteOffset == a.anchor)
 		// Restore the default theme and first page before taking the screenshot.
 		c := defaults()
 		a.cfg = c
 		a.rebuildFonts()
 		w.U("SetWindowPos", a.hwnd, w.Topmost, 0, 0, uintptr(a.px(c.Width)), uintptr(a.px(c.Height)), w.SWP_NOMOVE)
-		a.anchor = 0
+		a.anchor = a.book.contentStart
+		a.page = 0
+		a.history = []int64{a.anchor}
+		a.historyPos = 0
+		a.lastLayout = layoutSignature{}
 		a.paginate()
 		a.applyAppearance()
 	case 15:
@@ -240,15 +254,16 @@ func (s *Smoke) step(a *App) {
 		w.U("SetWindowPos", a.hwnd, w.Topmost, 0, 0, 460, 580, w.SWP_NOMOVE|w.SWP_NOACTIVATE)
 	case 21:
 		large := strings.Repeat("分页测试。", 200000)
-		a.text = []rune(large)
-		a.anchor = 0
+		largePath := filepath.Join(s.dir, "million.txt")
+		os.WriteFile(largePath, []byte(large), 0600)
 		started := time.Now()
-		a.paginate()
+		loaded := a.openBook(largePath, 0, false)
 		elapsed := time.Since(started)
-		s.check("million-character novel paginates without losing text", len(a.pages) > 1 && a.pages[len(a.pages)-1].End == len(a.text), fmt.Sprintf("%d characters, %d pages, %s", len(a.text), len(a.pages), elapsed.Round(time.Millisecond)))
+		largeBook := a.book
+		s.check("million-character novel loads one bounded chunk", loaded && !a.view.EOF && a.book.peakRead <= initialBookChunk && len(a.view.Text) < 100000, fmt.Sprintf("%d characters, first page=%d, peak read=%d bytes, %s", len([]rune(large)), len(a.view.Text), a.book.peakRead, elapsed.Round(time.Millisecond)))
 		path := filepath.Join(s.dir, "empty.txt")
 		os.WriteFile(path, nil, 0600)
-		s.check("empty TXT rejected without replacing book", !a.openBook(path, 0, false) && len(a.text) == len([]rune(large)))
+		s.check("empty TXT rejected without replacing book", !a.openBook(path, 0, false) && a.book == largeBook)
 	case 22:
 		data, _ := json.MarshalIndent(s.checks, "", "  ")
 		os.WriteFile(filepath.Join(s.dir, "report.json"), data, 0644)
@@ -292,7 +307,11 @@ func capture(hwnd uintptr, path string) error {
 	for y := 0; y < r.Height(); y++ {
 		for x := 0; x < r.Width(); x++ {
 			i := (y*r.Width() + x) * 4
-			im.SetRGBA(x, y, color.RGBA{pixels[i+2], pixels[i+1], pixels[i], 255})
+			pixel := color.RGBA{pixels[i+2], pixels[i+1], pixels[i], 255}
+			if app != nil && hwnd == app.hwnd && app.cfg.Opacity == 0 && pixel.R == 1 && pixel.G == 0 && pixel.B == 1 {
+				pixel.A = 0
+			}
+			im.SetRGBA(x, y, pixel)
 		}
 	}
 	f, err := os.Create(path)
