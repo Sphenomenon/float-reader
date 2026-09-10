@@ -50,20 +50,11 @@ func (a *App) paint(hwnd uintptr) {
 		w.U("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
 	}()
 	p := a.pal()
-	transparent := a.cfg.Opacity == 0 && a.book != nil
-	background := p.BG
-	if transparent {
-		background = transparentKey
-	}
-	w.Fill(dc, r, background)
+	w.Fill(dc, r, p.BG)
 	w.G("SetBkMode", dc, 1)
 	pad := a.px(28)
 	width := r.Width()
 	height := r.Height()
-	if transparent {
-		a.drawPageText(dc, p)
-		return
-	}
 	// The header is also the window's drag area.
 	a.roundRect(dc, w.Rect{Left: int32(pad), Top: int32(a.px(22)), Right: int32(pad + a.px(6)), Bottom: int32(a.px(40))}, p.Accent, a.px(4))
 	a.label(dc, "隅读", a.uiFont, p.Accent, pad+a.px(16), a.px(18), a.px(56), a.px(27), w.DT_SINGLELINE|w.DT_VCENTER)
@@ -95,7 +86,6 @@ func (a *App) paint(hwnd uintptr) {
 		}
 		a.label(dc, "隐藏 / 显示  "+keyName(a.cfg.Keys[actBoss]), a.smallFont, p.Muted, pad, height-a.px(39), width-2*pad, a.px(22), w.DT_CENTER|w.DT_SINGLELINE)
 	} else if len(a.view.Text) > 0 {
-		a.drawPageText(dc, p)
 		y := height - a.px(52)
 		a.label(dc, "‹", a.titleFont, p.Accent, a.px(20), y, a.px(34), a.px(32), w.DT_CENTER|w.DT_SINGLELINE|w.DT_VCENTER)
 		a.label(dc, "›", a.titleFont, p.Accent, width-a.px(54), y, a.px(34), a.px(32), w.DT_CENTER|w.DT_SINGLELINE|w.DT_VCENTER)
@@ -117,12 +107,55 @@ func (a *App) paint(hwnd uintptr) {
 	}
 }
 
-func (a *App) drawPageText(dc uintptr, p Palette) {
-	content := a.contentRect()
+func (a *App) drawPageText(dc uintptr, p Palette, content w.Rect) {
 	w.G("SaveDC", dc)
 	w.G("IntersectClipRect", dc, w.Signed(int(content.Left)), w.Signed(int(content.Top)), w.Signed(int(content.Right)), w.Signed(int(content.Bottom)))
 	for i, line := range a.view.Layout.Lines {
 		a.label(dc, string(a.view.Text[line.Start:line.End]), a.bodyFont, p.Ink, int(content.Left), int(content.Top)+i*a.lineHeight(), content.Width(), a.lineHeight(), w.DT_SINGLELINE)
 	}
 	w.G("RestoreDC", dc, w.Signed(-1))
+}
+
+func (a *App) paintTextLayer(hwnd uintptr) {
+	var ps w.Paint
+	screen := w.U("BeginPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
+	r := w.Client(hwnd)
+	if r.Width() < 1 || r.Height() < 1 {
+		w.U("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
+		return
+	}
+	dc := w.G("CreateCompatibleDC", screen)
+	bmp := w.G("CreateCompatibleBitmap", screen, uintptr(r.Width()), uintptr(r.Height()))
+	old := w.G("SelectObject", dc, bmp)
+	defer func() {
+		w.G("BitBlt", screen, 0, 0, uintptr(r.Width()), uintptr(r.Height()), dc, 0, 0, 0x00cc0020)
+		w.G("SelectObject", dc, old)
+		w.G("DeleteObject", bmp)
+		w.G("DeleteDC", dc)
+		w.U("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
+	}()
+	w.Fill(dc, r, transparentKey)
+	w.G("SetBkMode", dc, 1)
+	if a.book != nil && len(a.view.Text) > 0 {
+		a.drawPageText(dc, a.pal(), r)
+	}
+}
+
+func textProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
+	a := app
+	if a == nil {
+		return w.U("DefWindowProcW", hwnd, uintptr(msg), wp, lp)
+	}
+	switch msg {
+	case w.WM_NCCALCSIZE:
+		return 0
+	case w.WM_NCHITTEST:
+		return ^uintptr(0) // HTTRANSPARENT: the main window keeps all input handling.
+	case w.WM_ERASEBKGND:
+		return 1
+	case w.WM_PAINT:
+		a.paintTextLayer(hwnd)
+		return 0
+	}
+	return w.U("DefWindowProcW", hwnd, uintptr(msg), wp, lp)
 }

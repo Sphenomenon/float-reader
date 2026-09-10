@@ -18,23 +18,24 @@ type BookMark struct {
 	Trail      []int64 `json:"trail,omitempty"`
 }
 type Config struct {
-	Width      int        `json:"width"`
-	Height     int        `json:"height"`
-	X          int        `json:"x"`
-	Y          int        `json:"y"`
-	Positioned bool       `json:"positioned"`
-	FontSize   int        `json:"font_size"`
-	LineSpace  int        `json:"line_space_percent"`
-	Opacity    int        `json:"opacity"`
-	Theme      int        `json:"theme"`
-	CharLimit  int        `json:"character_limit"`
-	GlobalNav  bool       `json:"global_navigation"`
-	Keys       [5]Hotkey  `json:"hotkeys"`
-	Recent     []BookMark `json:"recent"`
+	Width       int        `json:"width"`
+	Height      int        `json:"height"`
+	X           int        `json:"x"`
+	Y           int        `json:"y"`
+	Positioned  bool       `json:"positioned"`
+	FontSize    int        `json:"font_size"`
+	LineSpace   int        `json:"line_space_percent"`
+	Opacity     int        `json:"opacity"`
+	TextOpacity int        `json:"text_opacity"`
+	Theme       int        `json:"theme"`
+	CharLimit   int        `json:"character_limit"`
+	GlobalNav   bool       `json:"global_navigation"`
+	Keys        [5]Hotkey  `json:"hotkeys"`
+	Recent      []BookMark `json:"recent"`
 }
 
 func defaults() Config {
-	return Config{Width: 460, Height: 580, FontSize: 20, LineSpace: 175, Opacity: 100,
+	return Config{Width: 460, Height: 580, FontSize: 20, LineSpace: 175, Opacity: 100, TextOpacity: 100,
 		Keys: [5]Hotkey{{0x27, 0}, {0x25, 0}, {0x20, 3}, {'O', 2}, {0xbc, 2}}}
 }
 
@@ -51,6 +52,7 @@ func loadConfig(path string) Config {
 	c.FontSize = clamp(c.FontSize, 14, 40)
 	c.LineSpace = clamp(c.LineSpace, 120, 220)
 	c.Opacity = clamp(c.Opacity, 0, 100)
+	c.TextOpacity = clamp(c.TextOpacity, 0, 100)
 	c.Theme = clamp(c.Theme, 0, 2)
 	c.CharLimit = clamp(c.CharLimit, 0, 20000)
 	for i, k := range c.Keys {

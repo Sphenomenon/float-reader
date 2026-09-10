@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -81,6 +82,7 @@ func (s *Smoke) step(a *App) {
 		w.U("SetWindowPos", a.hwnd, w.Topmost, 80, 80, uintptr(a.px(460)), uintptr(a.px(580)), w.SWP_NOACTIVATE)
 		s.check("topmost style", w.U("GetWindowLongPtrW", a.hwnd, w.Signed(-20))&w.WS_EX_TOPMOST != 0)
 		s.check("no title bar", w.U("GetWindowLongPtrW", a.hwnd, w.Signed(-16))&0xc00000 == 0)
+		s.check("no native thick frame", w.U("GetWindowLongPtrW", a.hwnd, w.Signed(-16))&w.WS_THICKFRAME == 0)
 		s.shot(a.hwnd, "01-welcome")
 		text := assets.SampleNovel
 		path := filepath.Join(s.dir, "山海来信.txt")
@@ -106,13 +108,13 @@ func (s *Smoke) step(a *App) {
 	case 3:
 		press(a.cfg.Keys[actBoss])
 	case 4:
-		s.check("global boss key hides native window", a.hidden && w.U("IsWindowVisible", a.hwnd) == 0)
+		s.check("global boss key hides native window", a.hidden && w.U("IsWindowVisible", a.hwnd) == 0 && w.U("IsWindowVisible", a.textHwnd) == 0)
 		s.before = int64(a.page)
 		a.turn(1)
 		s.check("hidden window does not change page", int64(a.page) == s.before)
 		press(a.cfg.Keys[actBoss])
 	case 5:
-		s.check("same global boss key restores native window", !a.hidden && w.U("IsWindowVisible", a.hwnd) != 0)
+		s.check("same global boss key restores native window", !a.hidden && w.U("IsWindowVisible", a.hwnd) != 0 && w.U("IsWindowVisible", a.textHwnd) != 0)
 		a.openSettings()
 	case 6:
 		s.shot(a.dialog, "03-settings")
@@ -131,14 +133,21 @@ func (s *Smoke) step(a *App) {
 		w.SetText(a.fields[fWidth], "500")
 		w.SetText(a.fields[fHeight], "530")
 		w.SetText(a.fields[fFont], "22")
-		w.SetText(a.fields[fOpacity], "0")
+		w.SetText(a.fields[fOpacity], "1")
+		w.SetText(a.fields[fTextOpacity], "100")
 		s.check("numeric dimensions and font saved", a.applySettings())
 		r := w.Bounds(a.hwnd)
 		s.check("width height applied", a.dip(r.Width()) == 500 && a.dip(r.Height()) == 530, r)
-		var colorKey, flags uint32
-		var alpha byte
-		layered := w.U("GetLayeredWindowAttributes", a.hwnd, uintptr(unsafe.Pointer(&colorKey)), uintptr(unsafe.Pointer(&alpha)), uintptr(unsafe.Pointer(&flags)))
-		s.check("zero opacity enables text-only color-key transparency", layered != 0 && colorKey == uint32(transparentKey) && flags&1 != 0, fmt.Sprintf("color=%06x flags=%d", colorKey, flags))
+		var mainColor, textColor, mainFlags, textFlags uint32
+		var mainAlpha, textAlpha byte
+		mainLayered := w.U("GetLayeredWindowAttributes", a.hwnd, uintptr(unsafe.Pointer(&mainColor)), uintptr(unsafe.Pointer(&mainAlpha)), uintptr(unsafe.Pointer(&mainFlags)))
+		textLayered := w.U("GetLayeredWindowAttributes", a.textHwnd, uintptr(unsafe.Pointer(&textColor)), uintptr(unsafe.Pointer(&textAlpha)), uintptr(unsafe.Pointer(&textFlags)))
+		s.check("low background opacity keeps a separate visible text layer", mainLayered != 0 && mainAlpha == 2 && mainFlags&2 != 0 && textLayered != 0 && textColor == uint32(transparentKey) && textAlpha == 255 && textFlags&3 == 3 && w.U("IsWindowVisible", a.textHwnd) != 0, fmt.Sprintf("main alpha=%d flags=%d; text color=%06x alpha=%d flags=%d", mainAlpha, mainFlags, textColor, textAlpha, textFlags))
+		s.shot(a.hwnd, "03-low-background")
+		a.openSettings()
+		w.SetText(a.fields[fOpacity], "0")
+		w.SetText(a.fields[fTextOpacity], "100")
+		s.check("zero background leaves text layer visible", a.applySettings() && w.U("IsWindowVisible", a.textHwnd) != 0)
 		s.shot(a.hwnd, "03-text-only")
 		a.openSettings()
 		w.SetText(a.fields[fChars], "80")
@@ -159,6 +168,7 @@ func (s *Smoke) step(a *App) {
 		w.U("SendMessageW", a.hwnd, w.WM_EXITSIZEMOVE, 0, 0)
 		s.check("moving the window preserves manual character limit", a.cfg.CharLimit == 80)
 		s.check("moving the window does not reload text", a.book.readCalls == readsBeforeMove, fmt.Sprintf("reads=%d", a.book.readCalls))
+		s.check("text layer follows window movement", textLayerMatchesContent(a), fmt.Sprint(w.Bounds(a.textHwnd)))
 		s.before = a.anchor
 		w.U("SendMessageW", a.hwnd, w.WM_ENTERSIZEMOVE, 0, 0)
 		w.U("SetWindowPos", a.hwnd, 0, 0, 0, uintptr(a.px(430)), uintptr(a.px(540)), w.SWP_NOMOVE|w.SWP_NOZORDER)
@@ -193,6 +203,7 @@ func (s *Smoke) step(a *App) {
 		press(a.cfg.Keys[actNext])
 	case 11:
 		s.check("custom global next works with another window focused", a.anchor > s.before, "offset=", a.anchor, " previous=", s.before)
+		s.check("external focus does not add a native thick frame", w.U("GetWindowLongPtrW", a.hwnd, w.Signed(-16))&w.WS_THICKFRAME == 0)
 		press(a.cfg.Keys[actBoss])
 	case 12:
 		s.check("boss key works while another window is focused", a.hidden)
@@ -283,9 +294,19 @@ type bitmapInfo struct {
 	Used, Important        uint32
 }
 
-func capture(hwnd uintptr, path string) error {
+func textLayerMatchesContent(a *App) bool {
+	if a == nil || a.textHwnd == 0 {
+		return false
+	}
+	main := w.Bounds(a.hwnd)
+	content := a.contentRect()
+	text := w.Bounds(a.textHwnd)
+	return text.Left == main.Left+content.Left && text.Top == main.Top+content.Top && text.Width() == content.Width() && text.Height() == content.Height()
+}
+
+func captureWindow(hwnd uintptr) (*image.RGBA, error) {
 	if hwnd == 0 {
-		return fmt.Errorf("window not available")
+		return nil, fmt.Errorf("window not available")
 	}
 	w.U("UpdateWindow", hwnd)
 	r := w.Client(hwnd)
@@ -301,18 +322,44 @@ func capture(hwnd uintptr, path string) error {
 	bi := bitmapInfo{Size: uint32(unsafe.Sizeof(bitmapInfo{})), Width: int32(r.Width()), Height: -int32(r.Height()), Planes: 1, BitCount: 32}
 	pixels := make([]byte, r.Width()*r.Height()*4)
 	if w.G("GetDIBits", mem, bmp, 0, uintptr(r.Height()), uintptr(unsafe.Pointer(&pixels[0])), uintptr(unsafe.Pointer(&bi)), 0) == 0 {
-		return fmt.Errorf("GetDIBits failed")
+		return nil, fmt.Errorf("GetDIBits failed")
 	}
 	im := image.NewRGBA(image.Rect(0, 0, r.Width(), r.Height()))
 	for y := 0; y < r.Height(); y++ {
 		for x := 0; x < r.Width(); x++ {
 			i := (y*r.Width() + x) * 4
-			pixel := color.RGBA{pixels[i+2], pixels[i+1], pixels[i], 255}
-			if app != nil && hwnd == app.hwnd && app.cfg.Opacity == 0 && pixel.R == 1 && pixel.G == 0 && pixel.B == 1 {
-				pixel.A = 0
-			}
-			im.SetRGBA(x, y, pixel)
+			im.SetRGBA(x, y, color.RGBA{pixels[i+2], pixels[i+1], pixels[i], 255})
 		}
+	}
+	return im, nil
+}
+
+func capture(hwnd uintptr, path string) error {
+	im, err := captureWindow(hwnd)
+	if err != nil {
+		return err
+	}
+	if app != nil && hwnd == app.hwnd && app.textHwnd != 0 && app.book != nil {
+		text, err := captureWindow(app.textHwnd)
+		if err != nil {
+			return err
+		}
+		for i := 3; i < len(im.Pix); i += 4 {
+			im.Pix[i] = byte(app.cfg.Opacity * 255 / 100)
+		}
+		for y := 0; y < text.Bounds().Dy(); y++ {
+			for x := 0; x < text.Bounds().Dx(); x++ {
+				pixel := text.RGBAAt(x, y)
+				if pixel.R == 1 && pixel.G == 0 && pixel.B == 1 {
+					pixel.A = 0
+				} else {
+					pixel.A = byte(app.cfg.TextOpacity * 255 / 100)
+				}
+				text.SetRGBA(x, y, pixel)
+			}
+		}
+		content := app.contentRect()
+		draw.Draw(im, image.Rect(int(content.Left), int(content.Top), int(content.Right), int(content.Bottom)), text, image.Point{}, draw.Over)
 	}
 	f, err := os.Create(path)
 	if err != nil {

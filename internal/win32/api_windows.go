@@ -122,6 +122,7 @@ type NotifyIcon struct {
 const (
 	WM_CREATE           = 0x1
 	WM_DESTROY          = 0x2
+	WM_MOVE             = 0x3
 	WM_SIZE             = 0x5
 	WM_ACTIVATE         = 0x6
 	WM_SETFOCUS         = 0x7
@@ -162,6 +163,7 @@ const (
 	WS_EX_TOPMOST       = 0x8
 	WS_EX_TOOLWINDOW    = 0x80
 	WS_EX_LAYERED       = 0x80000
+	WS_EX_NOACTIVATE    = 0x8000000
 	WS_EX_CONTROLPARENT = 0x10000
 	WS_EX_CLIENTEDGE    = 0x200
 	SW_HIDE             = 0

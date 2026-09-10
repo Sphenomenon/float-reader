@@ -16,6 +16,7 @@ import (
 
 const appTitle = "隅读 · Float Reader"
 const mainClass = "FloatReader.Main.v1"
+const textClass = "FloatReader.Text.v1"
 const settingsClass = "FloatReader.Settings.v1"
 const trayMessage = w.WM_APP + 1
 const (
@@ -28,6 +29,7 @@ const (
 
 var app *App
 var mainProcPtr = syscall.NewCallback(mainProc)
+var textProcPtr = syscall.NewCallback(textProc)
 var settingsProcPtr = syscall.NewCallback(settingsProc)
 var keyProcPtr = syscall.NewCallback(keyProc)
 var hideOwnedProcPtr = syscall.NewCallback(func(hwnd, lp uintptr) uintptr {
@@ -59,7 +61,7 @@ var palettes = []Palette{
 }
 
 type App struct {
-	hwnd, instance, icon, dialog           uintptr
+	hwnd, textHwnd, instance, icon, dialog uintptr
 	cfg                                    Config
 	configPath                             string
 	dpi                                    int
@@ -147,7 +149,7 @@ func main() {
 	for _, entry := range []struct {
 		name string
 		proc uintptr
-	}{{mainClass, mainProcPtr}, {settingsClass, settingsProcPtr}} {
+	}{{mainClass, mainProcPtr}, {textClass, textProcPtr}, {settingsClass, settingsProcPtr}} {
 		wc := w.WndClass{Size: uint32(unsafe.Sizeof(w.WndClass{})), Style: 8, Proc: entry.proc, Instance: app.instance, Icon: app.icon, IconSmall: app.icon, Cursor: w.U("LoadCursorW", 0, 32512), Class: w.Str(entry.name)}
 		if w.U("RegisterClassExW", uintptr(unsafe.Pointer(&wc))) == 0 {
 			w.Message(0, "窗口初始化失败。", appTitle, 0x10)
@@ -160,12 +162,13 @@ func main() {
 	if app.cfg.Positioned {
 		x, y = app.cfg.X, app.cfg.Y
 	}
-	app.hwnd = w.U("CreateWindowExW", w.WS_EX_TOPMOST|w.WS_EX_TOOLWINDOW|w.WS_EX_LAYERED, uintptr(unsafe.Pointer(w.Str(mainClass))), uintptr(unsafe.Pointer(w.Str(appTitle))), w.WS_POPUP|w.WS_THICKFRAME, w.Signed(x), w.Signed(y), uintptr(width), uintptr(height), 0, 0, app.instance, 0)
+	app.hwnd = w.U("CreateWindowExW", w.WS_EX_TOPMOST|w.WS_EX_TOOLWINDOW|w.WS_EX_LAYERED, uintptr(unsafe.Pointer(w.Str(mainClass))), uintptr(unsafe.Pointer(w.Str(appTitle))), w.WS_POPUP, w.Signed(x), w.Signed(y), uintptr(width), uintptr(height), 0, 0, app.instance, 0)
 	if app.hwnd == 0 {
 		w.Message(0, "无法创建阅读窗口。", appTitle, 0x10)
 		return
 	}
 	app.rebuildFonts()
+	app.createTextLayer()
 	app.applyAppearance()
 	app.ensureOnScreen()
 	app.taskbarCreated = uint32(w.U("RegisterWindowMessageW", uintptr(unsafe.Pointer(w.Str("TaskbarCreated")))))
@@ -193,6 +196,7 @@ func main() {
 	}
 	w.U("ShowWindow", app.hwnd, w.SW_SHOW)
 	w.U("UpdateWindow", app.hwnd)
+	app.syncTextLayer()
 	w.U("SetTimer", app.hwnd, 1, 1000, 0)
 	if isSmoke {
 		w.U("SetTimer", app.hwnd, 9, 450, 0)
@@ -253,19 +257,48 @@ func (a *App) rebuildFonts() {
 	a.uiFont = a.newFont(14, 400)
 	a.smallFont = a.newFont(12, 400)
 	a.titleFont = a.newFont(22, 600)
+	a.invalidateTextLayer()
 }
 func (a *App) applyAppearance() {
-	if a.cfg.Opacity == 0 {
-		w.U("SetLayeredWindowAttributes", a.hwnd, transparentKey, 255, 1)
-	} else {
-		w.U("SetLayeredWindowAttributes", a.hwnd, 0, uintptr(a.cfg.Opacity*255/100), 2)
-	}
+	w.U("SetLayeredWindowAttributes", a.hwnd, 0, uintptr(a.cfg.Opacity*255/100), 2)
+	a.applyTextAppearance()
 	// Rounded corners where Windows 11 supports them; no standard title bar.
 	v := uint32(2)
 	p := w.Dwm.NewProc("DwmSetWindowAttribute")
 	if p.Find() == nil {
 		p.Call(a.hwnd, 33, uintptr(unsafe.Pointer(&v)), 4)
 	}
+}
+
+func (a *App) createTextLayer() {
+	a.textHwnd = w.U("CreateWindowExW", w.WS_EX_TOPMOST|w.WS_EX_TOOLWINDOW|w.WS_EX_LAYERED|w.WS_EX_NOACTIVATE, uintptr(unsafe.Pointer(w.Str(textClass))), 0, w.WS_POPUP, 0, 0, 1, 1, a.hwnd, 0, a.instance, 0)
+}
+
+func (a *App) applyTextAppearance() {
+	if a.textHwnd != 0 {
+		w.U("SetLayeredWindowAttributes", a.textHwnd, transparentKey, uintptr(a.cfg.TextOpacity*255/100), 1|2)
+	}
+}
+
+func (a *App) invalidateTextLayer() {
+	if a.textHwnd != 0 {
+		w.U("InvalidateRect", a.textHwnd, 0, 0)
+	}
+}
+
+func (a *App) syncTextLayer() {
+	if a.textHwnd == 0 {
+		return
+	}
+	if a.book == nil || a.hidden || a.modal || w.U("IsWindowVisible", a.hwnd) == 0 {
+		w.U("ShowWindow", a.textHwnd, w.SW_HIDE)
+		return
+	}
+	mainBounds := w.Bounds(a.hwnd)
+	content := a.contentRect()
+	w.U("SetWindowPos", a.textHwnd, w.Topmost, w.Signed(int(mainBounds.Left+content.Left)), w.Signed(int(mainBounds.Top+content.Top)), uintptr(content.Width()), uintptr(content.Height()), w.SWP_NOACTIVATE)
+	w.U("ShowWindow", a.textHwnd, w.SW_SHOWNOACTIVATE)
+	a.invalidateTextLayer()
 }
 func (a *App) ensureOnScreen() {
 	r := w.Bounds(a.hwnd)
@@ -316,10 +349,12 @@ func (a *App) layoutPage(book *bookSource, start int64) (loadedPage, error) {
 }
 func (a *App) paginate() {
 	if a.bodyFont == 0 || a.book == nil {
+		a.syncTextLayer()
 		return
 	}
 	sig := a.layout()
 	if sig == a.lastLayout && a.view.Start == a.anchor && len(a.view.Text) > 0 {
+		a.syncTextLayer()
 		a.invalidate()
 		return
 	}
@@ -331,6 +366,7 @@ func (a *App) paginate() {
 	a.view = view
 	a.anchor = view.Start
 	a.lastLayout = sig
+	a.syncTextLayer()
 	a.invalidate()
 }
 func (a *App) turn(delta int) {
@@ -412,9 +448,11 @@ func (a *App) toggle() {
 		} else {
 			w.U("SetForegroundWindow", a.hwnd)
 		}
+		a.syncTextLayer()
 	} else {
 		a.save()
 		a.hidden = true
+		w.U("ShowWindow", a.textHwnd, w.SW_HIDE)
 		w.U("UnregisterHotKey", a.hwnd, 100+actNext)
 		w.U("UnregisterHotKey", a.hwnd, 100+actPrevious)
 		a.hiddenOwned = nil
@@ -485,6 +523,7 @@ func (a *App) openBook(path string, offset int, report bool) bool {
 	a.history = append(a.history, a.anchor)
 	a.historyPos = len(a.history) - 1
 	a.lastLayout = a.layout()
+	a.syncTextLayer()
 	a.invalidate()
 	a.save()
 	return true
@@ -503,11 +542,13 @@ func (a *App) importBook() {
 		return
 	}
 	a.modal = true
+	a.syncTextLayer()
 	buf := make([]uint16, 32768)
 	filter := utf16.Encode([]rune("TXT 文本文件 (*.txt)\x00*.txt\x00所有文件 (*.*)\x00*.*\x00\x00"))
 	of := w.OpenFile{Size: uint32(unsafe.Sizeof(w.OpenFile{})), Owner: a.hwnd, Filter: &filter[0], FilterIndex: 1, File: &buf[0], MaxFile: uint32(len(buf)), Title: w.Str("导入小说 · 隅读"), Flags: 0x1000 | 0x800 | 0x8 | 0x80000, DefExt: w.Str("txt")}
 	ok := w.C("GetOpenFileNameW", uintptr(unsafe.Pointer(&of)))
 	a.modal = false
+	a.syncTextLayer()
 	if ok != 0 {
 		a.openBook(syscall.UTF16ToString(buf), 0, true)
 	}
@@ -562,6 +603,9 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case w.WM_PAINT:
 		a.paint(hwnd)
 		return 0
+	case w.WM_MOVE:
+		a.syncTextLayer()
+		return 0
 	case w.WM_SIZE:
 		if a.hwnd != 0 && a.bodyFont != 0 {
 			if a.sizing {
@@ -578,6 +622,7 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 			}
 			a.dirty = true
 		}
+		a.syncTextLayer()
 		return 0
 	case w.WM_ENTERSIZEMOVE:
 		a.sizing = true
@@ -596,6 +641,7 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		return 0
 	case w.WM_DISPLAYCHANGE:
 		a.ensureOnScreen()
+		a.syncTextLayer()
 		return 0
 	case w.WM_DPICHANGED:
 		a.dpi = int(wp & 0xffff)

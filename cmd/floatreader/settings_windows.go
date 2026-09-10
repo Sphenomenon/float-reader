@@ -14,6 +14,7 @@ const (
 	fSpacing
 	fChars
 	fOpacity
+	fTextOpacity
 	fTheme
 	fGlobal
 	fHelp
@@ -47,6 +48,7 @@ func (a *App) openSettings() {
 	}
 	a.save()
 	a.modal = true
+	a.syncTextLayer()
 	a.fields = map[int]uintptr{}
 	a.draftKeys = a.cfg.Keys
 	a.capturing = -1
@@ -57,19 +59,20 @@ func (a *App) openSettings() {
 	}
 	r := w.Bounds(a.hwnd)
 	work := w.WorkArea(a.hwnd)
-	a.settingsDPI = min(a.dpi, min((work.Height()-16)*96/718, (work.Width()-16)*96/594))
+	a.settingsDPI = min(a.dpi, min((work.Height()-16)*96/756, (work.Width()-16)*96/594))
 	face := a.fontFace
 	if face == "" {
 		face = "Microsoft YaHei UI"
 	}
 	a.settingsFont = w.G("CreateFontW", w.Signed(-a.spx(14)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(w.Str(face))))
-	width, height := a.spx(594), a.spx(718)
+	width, height := a.spx(594), a.spx(756)
 	// Keep the entire dialog inside the monitor's work area.
 	x := clamp(int(r.Left)+(r.Width()-width)/2, int(work.Left), max(int(work.Left), int(work.Right)-width))
 	y := clamp(int(r.Top)+(r.Height()-height)/2, int(work.Top), max(int(work.Top), int(work.Bottom)-height))
 	a.dialog = w.U("CreateWindowExW", w.WS_EX_TOPMOST|w.WS_EX_TOOLWINDOW|w.WS_EX_CONTROLPARENT, uintptr(unsafe.Pointer(w.Str(settingsClass))), uintptr(unsafe.Pointer(w.Str("阅读设置 · 隅读"))), w.WS_POPUP|w.WS_BORDER, w.Signed(x), w.Signed(y), uintptr(width), uintptr(height), a.hwnd, 0, a.instance, 0)
 	if a.dialog == 0 {
 		a.modal = false
+		a.syncTextLayer()
 		w.Message(a.hwnd, "无法打开设置。", appTitle, 0x10)
 		return
 	}
@@ -80,32 +83,33 @@ func (a *App) openSettings() {
 	a.edit("字号", strconv.Itoa(a.cfg.FontSize), 302, 99, 122, fFont)
 	a.edit("行距 %", strconv.Itoa(a.cfg.LineSpace), 440, 99, 122, fSpacing)
 	a.edit("每页目标字数", strconv.Itoa(a.settingsCapacity), 26, 170, 164, fChars)
-	a.edit("不透明度 %", strconv.Itoa(a.cfg.Opacity), 208, 170, 164, fOpacity)
-	a.control("STATIC", "阅读配色", 0, 390, 170, 172, 22, 0)
-	theme := a.control("COMBOBOX", "", w.WS_TABSTOP|3|0x200000, 390, 195, 172, 140, fTheme)
+	a.edit("背景不透明度 %", strconv.Itoa(a.cfg.Opacity), 208, 170, 164, fOpacity)
+	a.edit("文字不透明度 %", strconv.Itoa(a.cfg.TextOpacity), 390, 170, 172, fTextOpacity)
+	a.control("STATIC", "阅读配色", 0, 26, 242, 172, 22, 0)
+	theme := a.control("COMBOBOX", "", w.WS_TABSTOP|3|0x200000, 26, 267, 172, 140, fTheme)
 	for _, s := range []string{"暖白", "深色", "浅蓝"} {
 		w.U("SendMessageW", theme, 0x143, 0, uintptr(unsafe.Pointer(w.Str(s))))
 	}
 	w.U("SendMessageW", theme, 0x14e, uintptr(a.cfg.Theme), 0)
-	a.control("STATIC", "透明度设为 0 时只显示正文；右键或快捷键仍可打开设置。", 0, 26, 237, 540, 22, 0)
-	a.control("STATIC", "快捷键", 0, 26, 282, 220, 25, 0)
-	a.control("STATIC", "点击输入框，直接按下新快捷键。", 0, 26, 310, 540, 22, 0)
+	a.control("STATIC", "背景和文字可分别调节。背景设为 0 时只留下正文。", 0, 26, 312, 540, 22, 0)
+	a.control("STATIC", "快捷键", 0, 26, 344, 220, 25, 0)
+	a.control("STATIC", "点击输入框，直接按下新快捷键。", 0, 26, 372, 540, 22, 0)
 	for i, name := range actionNames {
-		y := 344 + i*38
+		y := 406 + i*38
 		a.control("STATIC", name, 0, 26, y+5, 275, 26, 0)
 		h := a.control("EDIT", keyName(a.cfg.Keys[i]), w.WS_TABSTOP|w.WS_BORDER|0x800|0x80, 315, y, 247, 30, 300+i)
 		old := w.U("SetWindowLongPtrW", h, w.Signed(-4), keyProcPtr)
 		a.editOld[h] = old
 	}
-	a.control("BUTTON", "在其他软件里也能翻页", w.WS_TABSTOP|3, 26, 546, 536, 28, fGlobal)
+	a.control("BUTTON", "在其他软件里也能翻页", w.WS_TABSTOP|3, 26, 604, 536, 28, fGlobal)
 	if a.cfg.GlobalNav {
 		w.U("SendMessageW", a.fields[fGlobal], 0xf1, 1, 0)
 	}
-	a.control("STATIC", "老板键随时可用。全局翻页建议用 Ctrl / Alt / Shift 组合。", 0, 26, 578, 540, 23, 0)
-	a.control("STATIC", "", 0, 26, 610, 540, 34, fStatus)
-	a.control("BUTTON", "恢复默认", w.WS_TABSTOP, 26, 663, 106, 32, fReset)
-	a.control("BUTTON", "取消", w.WS_TABSTOP, 330, 663, 106, 32, fCancel)
-	a.control("BUTTON", "保存设置", w.WS_TABSTOP|1, 452, 663, 110, 32, fSave)
+	a.control("STATIC", "老板键随时可用。全局翻页建议用 Ctrl / Alt / Shift 组合。", 0, 26, 636, 540, 23, 0)
+	a.control("STATIC", "", 0, 26, 664, 540, 34, fStatus)
+	a.control("BUTTON", "恢复默认", w.WS_TABSTOP, 26, 710, 106, 32, fReset)
+	a.control("BUTTON", "取消", w.WS_TABSTOP, 330, 710, 106, 32, fCancel)
+	a.control("BUTTON", "保存设置", w.WS_TABSTOP|1, 452, 710, 110, 32, fSave)
 	w.U("EnableWindow", a.hwnd, 0)
 	w.U("ShowWindow", a.dialog, w.SW_SHOW)
 	w.U("SetForegroundWindow", a.dialog)
@@ -126,6 +130,7 @@ func (a *App) closeSettings() {
 	a.settingsFont = 0
 	a.fields = nil
 	a.editOld = map[uintptr]uintptr{}
+	a.syncTextLayer()
 	if !a.hidden {
 		w.U("SetForegroundWindow", a.hwnd)
 	}
@@ -144,7 +149,7 @@ func (a *App) applySettings() bool {
 		id, lo, hi int
 		name       string
 		out        *int
-	}{{fWidth, 320, 2000, "宽度", &c.Width}, {fHeight, 230, 2000, "高度", &c.Height}, {fFont, 14, 40, "字号", &c.FontSize}, {fSpacing, 120, 220, "行距", &c.LineSpace}, {fOpacity, 0, 100, "不透明度", &c.Opacity}} {
+	}{{fWidth, 320, 2000, "宽度", &c.Width}, {fHeight, 230, 2000, "高度", &c.Height}, {fFont, 14, 40, "字号", &c.FontSize}, {fSpacing, 120, 220, "行距", &c.LineSpace}, {fOpacity, 0, 100, "背景不透明度", &c.Opacity}, {fTextOpacity, 0, 100, "文字不透明度", &c.TextOpacity}} {
 		n, err := read(v.id, v.lo, v.hi, v.name)
 		if err != nil {
 			a.settingsError(err.Error())
@@ -211,7 +216,7 @@ func (a *App) applySettings() bool {
 }
 func (a *App) resetSettings() {
 	c := defaults()
-	for id, n := range map[int]int{fWidth: c.Width, fHeight: c.Height, fFont: c.FontSize, fSpacing: c.LineSpace, fOpacity: c.Opacity, fChars: 228} {
+	for id, n := range map[int]int{fWidth: c.Width, fHeight: c.Height, fFont: c.FontSize, fSpacing: c.LineSpace, fOpacity: c.Opacity, fTextOpacity: c.TextOpacity, fChars: 228} {
 		w.SetText(a.fields[id], strconv.Itoa(n))
 	}
 	w.U("SendMessageW", a.fields[fTheme], 0x14e, 0, 0)

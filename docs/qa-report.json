@@ -8,6 +8,10 @@
     "passed": true
   },
   {
+    "name": "no native thick frame",
+    "passed": true
+  },
+  {
     "name": "screenshot: 01-welcome",
     "passed": true,
     "detail": "\u003cnil\u003e"
@@ -93,9 +97,18 @@
     "detail": "{0 0 500 530}"
   },
   {
-    "name": "zero opacity enables text-only color-key transparency",
+    "name": "low background opacity keeps a separate visible text layer",
     "passed": true,
-    "detail": "color=010001 flags=1"
+    "detail": "main alpha=2 flags=2; text color=010001 alpha=255 flags=3"
+  },
+  {
+    "name": "screenshot: 03-low-background",
+    "passed": true,
+    "detail": "\u003cnil\u003e"
+  },
+  {
+    "name": "zero background leaves text layer visible",
+    "passed": true
   },
   {
     "name": "screenshot: 03-text-only",
@@ -117,7 +130,12 @@
   {
     "name": "moving the window does not reload text",
     "passed": true,
-    "detail": "reads=11"
+    "detail": "reads=10"
+  },
+  {
+    "name": "text layer follows window movement",
+    "passed": true,
+    "detail": "{32 92 476 244}"
   },
   {
     "name": "resize restores adaptive pagination",
@@ -152,6 +170,10 @@
     "name": "custom global next works with another window focused",
     "passed": true,
     "detail": "offset=908 previous=553"
+  },
+  {
+    "name": "external focus does not add a native thick frame",
+    "passed": true
   },
   {
     "name": "boss key works while another window is focused",
@@ -193,7 +215,7 @@
   {
     "name": "settings fit available screen at 200 percent UI scale",
     "passed": true,
-    "detail": "{21 0 899 1062}"
+    "detail": "{42 0 877 1063}"
   },
   {
     "name": "screenshot: 06-settings-scaled",
@@ -203,7 +225,7 @@
   {
     "name": "million-character novel loads one bounded chunk",
     "passed": true,
-    "detail": "1000000 characters, first page=240, peak read=65536 bytes, 9ms"
+    "detail": "1000000 characters, first page=240, peak read=65536 bytes, 7ms"
   },
   {
     "name": "empty TXT rejected without replacing book",
