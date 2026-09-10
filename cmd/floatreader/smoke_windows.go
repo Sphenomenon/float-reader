@@ -27,6 +27,15 @@ type Smoke struct {
 	dummy      uintptr
 	fileDialog uintptr
 	events     []string
+	textPixels []byte
+	textWidth  int
+	textHeight int
+}
+
+func (s *Smoke) rememberTextLayer(pixels []byte, width, height int) {
+	s.textPixels = append(s.textPixels[:0], pixels...)
+	s.textWidth = width
+	s.textHeight = height
 }
 
 func (s *Smoke) prepareFont(a *App) {
@@ -138,11 +147,13 @@ func (s *Smoke) step(a *App) {
 		s.check("numeric dimensions and font saved", a.applySettings())
 		r := w.Bounds(a.hwnd)
 		s.check("width height applied", a.dip(r.Width()) == 500 && a.dip(r.Height()) == 530, r)
-		var mainColor, textColor, mainFlags, textFlags uint32
-		var mainAlpha, textAlpha byte
+		var mainColor, mainFlags uint32
+		var mainAlpha byte
 		mainLayered := w.U("GetLayeredWindowAttributes", a.hwnd, uintptr(unsafe.Pointer(&mainColor)), uintptr(unsafe.Pointer(&mainAlpha)), uintptr(unsafe.Pointer(&mainFlags)))
-		textLayered := w.U("GetLayeredWindowAttributes", a.textHwnd, uintptr(unsafe.Pointer(&textColor)), uintptr(unsafe.Pointer(&textAlpha)), uintptr(unsafe.Pointer(&textFlags)))
-		s.check("low background opacity keeps a separate visible text layer", mainLayered != 0 && mainAlpha == 2 && mainFlags&2 != 0 && textLayered != 0 && textColor == uint32(transparentKey) && textAlpha == 255 && textFlags&3 == 3 && w.U("IsWindowVisible", a.textHwnd) != 0, fmt.Sprintf("main alpha=%d flags=%d; text color=%06x alpha=%d flags=%d", mainAlpha, mainFlags, textColor, textAlpha, textFlags))
+		mask := []byte{0, 0, 0, 0, 255, 255, 255, 0}
+		premultiplyTextMask(mask, w.RGB(40, 80, 120), 50)
+		cleanMask := mask[0] == 0 && mask[1] == 0 && mask[2] == 0 && mask[3] == 0 && mask[7] == 127 && mask[4] <= mask[7] && mask[5] <= mask[7] && mask[6] <= mask[7]
+		s.check("low background opacity keeps a clean per-pixel text layer", mainLayered != 0 && mainAlpha == 2 && mainFlags&2 != 0 && a.textRenderOK && cleanMask && w.U("IsWindowVisible", a.textHwnd) != 0, fmt.Sprintf("main alpha=%d flags=%d; text render=%t", mainAlpha, mainFlags, a.textRenderOK))
 		s.shot(a.hwnd, "03-low-background")
 		a.openSettings()
 		w.SetText(a.fields[fOpacity], "0")
@@ -340,25 +351,24 @@ func capture(hwnd uintptr, path string) error {
 		return err
 	}
 	if app != nil && hwnd == app.hwnd && app.textHwnd != 0 && app.book != nil {
-		text, err := captureWindow(app.textHwnd)
-		if err != nil {
-			return err
-		}
-		for i := 3; i < len(im.Pix); i += 4 {
-			im.Pix[i] = byte(app.cfg.Opacity * 255 / 100)
-		}
-		for y := 0; y < text.Bounds().Dy(); y++ {
-			for x := 0; x < text.Bounds().Dx(); x++ {
-				pixel := text.RGBAAt(x, y)
-				if pixel.R == 1 && pixel.G == 0 && pixel.B == 1 {
-					pixel.A = 0
-				} else {
-					pixel.A = byte(app.cfg.TextOpacity * 255 / 100)
-				}
-				text.SetRGBA(x, y, pixel)
-			}
-		}
 		content := app.contentRect()
+		if app.smoke == nil || app.smoke.textWidth != content.Width() || app.smoke.textHeight != content.Height() || len(app.smoke.textPixels) != content.Width()*content.Height()*4 {
+			return fmt.Errorf("text layer pixels not available")
+		}
+		backgroundAlpha := byte(app.cfg.Opacity * 255 / 100)
+		for i := 0; i+3 < len(im.Pix); i += 4 {
+			im.Pix[i] = byte(uint16(im.Pix[i]) * uint16(backgroundAlpha) / 255)
+			im.Pix[i+1] = byte(uint16(im.Pix[i+1]) * uint16(backgroundAlpha) / 255)
+			im.Pix[i+2] = byte(uint16(im.Pix[i+2]) * uint16(backgroundAlpha) / 255)
+			im.Pix[i+3] = backgroundAlpha
+		}
+		text := image.NewRGBA(image.Rect(0, 0, app.smoke.textWidth, app.smoke.textHeight))
+		for i := 0; i+3 < len(app.smoke.textPixels); i += 4 {
+			text.Pix[i] = app.smoke.textPixels[i+2]
+			text.Pix[i+1] = app.smoke.textPixels[i+1]
+			text.Pix[i+2] = app.smoke.textPixels[i]
+			text.Pix[i+3] = app.smoke.textPixels[i+3]
+		}
 		draw.Draw(im, image.Rect(int(content.Left), int(content.Top), int(content.Right), int(content.Bottom)), text, image.Point{}, draw.Over)
 	}
 	f, err := os.Create(path)

@@ -54,6 +54,13 @@ type layoutSignature struct {
 	width, height, fontSize, lineSpace, charLimit, dpi int
 }
 
+type textRenderSignature struct {
+	book                               *bookSource
+	start, end                         int64
+	width, height, fontSize, lineSpace int
+	dpi, theme, textOpacity            int
+}
+
 var palettes = []Palette{
 	{w.RGB(247, 244, 236), w.RGB(43, 52, 46), w.RGB(121, 128, 116), w.RGB(51, 105, 78), w.RGB(232, 236, 222), w.RGB(221, 225, 213)},
 	{w.RGB(30, 36, 35), w.RGB(222, 226, 215), w.RGB(145, 157, 145), w.RGB(157, 197, 153), w.RGB(47, 57, 51), w.RGB(62, 73, 64)},
@@ -77,10 +84,12 @@ type App struct {
 	history                                []int64
 	historyPos                             int
 	lastLayout                             layoutSignature
+	lastTextRender                         textRenderSignature
 	path, bookName, encoding               string
 	lastOpenError                          string
 	hidden, modal, sizing, dirty           bool
 	resizeChanged                          bool
+	textDirty, textRenderOK                bool
 	startSize                              w.Size
 	trayAdded                              bool
 	taskbarCreated                         uint32
@@ -241,11 +250,14 @@ func (a *App) notify(s string) {
 	a.invalidate()
 }
 func (a *App) newFont(size, weight int) uintptr {
+	return a.newFontWithQuality(size, weight, 5)
+}
+func (a *App) newFontWithQuality(size, weight, quality int) uintptr {
 	face := a.fontFace
 	if face == "" {
 		face = "Microsoft YaHei UI"
 	}
-	return w.G("CreateFontW", w.Signed(-a.px(size)), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(w.Str(face))))
+	return w.G("CreateFontW", w.Signed(-a.px(size)), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, uintptr(quality), 0, uintptr(unsafe.Pointer(w.Str(face))))
 }
 func (a *App) rebuildFonts() {
 	for _, f := range []uintptr{a.bodyFont, a.uiFont, a.smallFont, a.titleFont} {
@@ -253,7 +265,9 @@ func (a *App) rebuildFonts() {
 			w.G("DeleteObject", f)
 		}
 	}
-	a.bodyFont = a.newFont(a.cfg.FontSize, 400)
+	// Grayscale antialiasing produces a clean alpha mask for the transparent
+	// text layer. ClearType's RGB subpixels would turn into coloured fringes.
+	a.bodyFont = a.newFontWithQuality(a.cfg.FontSize, 400, 4)
 	a.uiFont = a.newFont(14, 400)
 	a.smallFont = a.newFont(12, 400)
 	a.titleFont = a.newFont(22, 600)
@@ -272,18 +286,30 @@ func (a *App) applyAppearance() {
 
 func (a *App) createTextLayer() {
 	a.textHwnd = w.U("CreateWindowExW", w.WS_EX_TOPMOST|w.WS_EX_TOOLWINDOW|w.WS_EX_LAYERED|w.WS_EX_NOACTIVATE, uintptr(unsafe.Pointer(w.Str(textClass))), 0, w.WS_POPUP, 0, 0, 1, 1, a.hwnd, 0, a.instance, 0)
+	a.textDirty = true
 }
 
 func (a *App) applyTextAppearance() {
-	if a.textHwnd != 0 {
-		w.U("SetLayeredWindowAttributes", a.textHwnd, transparentKey, uintptr(a.cfg.TextOpacity*255/100), 1|2)
-	}
+	a.invalidateTextLayer()
+	a.syncTextLayer()
 }
 
 func (a *App) invalidateTextLayer() {
-	if a.textHwnd != 0 {
-		w.U("InvalidateRect", a.textHwnd, 0, 0)
+	a.textDirty = true
+}
+
+func (a *App) positionTextLayer() {
+	if a.textHwnd == 0 {
+		return
 	}
+	if a.book == nil || a.hidden || a.modal || !a.textRenderOK || w.U("IsWindowVisible", a.hwnd) == 0 {
+		w.U("ShowWindow", a.textHwnd, w.SW_HIDE)
+		return
+	}
+	mainBounds := w.Bounds(a.hwnd)
+	content := a.contentRect()
+	w.U("SetWindowPos", a.textHwnd, w.Topmost, w.Signed(int(mainBounds.Left+content.Left)), w.Signed(int(mainBounds.Top+content.Top)), uintptr(content.Width()), uintptr(content.Height()), w.SWP_NOACTIVATE)
+	w.U("ShowWindow", a.textHwnd, w.SW_SHOWNOACTIVATE)
 }
 
 func (a *App) syncTextLayer() {
@@ -296,9 +322,26 @@ func (a *App) syncTextLayer() {
 	}
 	mainBounds := w.Bounds(a.hwnd)
 	content := a.contentRect()
-	w.U("SetWindowPos", a.textHwnd, w.Topmost, w.Signed(int(mainBounds.Left+content.Left)), w.Signed(int(mainBounds.Top+content.Top)), uintptr(content.Width()), uintptr(content.Height()), w.SWP_NOACTIVATE)
+	x, y := int(mainBounds.Left+content.Left), int(mainBounds.Top+content.Top)
+	sig := textRenderSignature{
+		book: a.book, start: a.view.Start, end: a.view.End,
+		width: content.Width(), height: content.Height(), fontSize: a.cfg.FontSize,
+		lineSpace: a.cfg.LineSpace, dpi: a.dpi, theme: a.cfg.Theme, textOpacity: a.cfg.TextOpacity,
+	}
+	if a.textDirty || sig != a.lastTextRender {
+		a.textRenderOK = a.renderTextLayer(x, y, content.Width(), content.Height())
+		if a.textRenderOK {
+			a.lastTextRender = sig
+			a.textDirty = false
+		}
+	} else {
+		w.U("SetWindowPos", a.textHwnd, w.Topmost, w.Signed(x), w.Signed(y), uintptr(content.Width()), uintptr(content.Height()), w.SWP_NOACTIVATE)
+	}
+	if !a.textRenderOK {
+		w.U("ShowWindow", a.textHwnd, w.SW_HIDE)
+		return
+	}
 	w.U("ShowWindow", a.textHwnd, w.SW_SHOWNOACTIVATE)
-	a.invalidateTextLayer()
 }
 func (a *App) ensureOnScreen() {
 	r := w.Bounds(a.hwnd)
@@ -604,7 +647,7 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		a.paint(hwnd)
 		return 0
 	case w.WM_MOVE:
-		a.syncTextLayer()
+		a.positionTextLayer()
 		return 0
 	case w.WM_SIZE:
 		if a.hwnd != 0 && a.bodyFont != 0 {
@@ -617,12 +660,12 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 					w.U("SetTimer", hwnd, 2, 70, 0)
 				}
 				a.invalidate()
+				a.positionTextLayer()
 			} else {
 				a.paginate()
 			}
 			a.dirty = true
 		}
-		a.syncTextLayer()
 		return 0
 	case w.WM_ENTERSIZEMOVE:
 		a.sizing = true
@@ -665,6 +708,7 @@ func mainProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 		}
 		if !a.hidden {
 			w.U("SetWindowPos", hwnd, w.Topmost, 0, 0, 0, 0, w.SWP_NOSIZE|w.SWP_NOMOVE|w.SWP_NOACTIVATE)
+			a.positionTextLayer()
 			if a.dialog != 0 {
 				w.U("SetWindowPos", a.dialog, w.Topmost, 0, 0, 0, 0, w.SWP_NOSIZE|w.SWP_NOMOVE|w.SWP_NOACTIVATE)
 			}

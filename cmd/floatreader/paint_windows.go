@@ -8,7 +8,18 @@ import (
 
 type hitRect struct{ x, y, width, height int }
 
-var transparentKey = w.RGB(1, 0, 1)
+type dibHeader struct {
+	Size                   uint32
+	Width, Height          int32
+	Planes, BitCount       uint16
+	Compression, ImageSize uint32
+	X, Y                   int32
+	Used, Important        uint32
+}
+
+type blendFunction struct {
+	Operation, Flags, Alpha, Format byte
+}
 
 func (r hitRect) contains(x, y int) bool {
 	return x >= r.x && x <= r.x+r.width && y >= r.y && y <= r.y+r.height
@@ -116,29 +127,62 @@ func (a *App) drawPageText(dc uintptr, p Palette, content w.Rect) {
 	w.G("RestoreDC", dc, w.Signed(-1))
 }
 
-func (a *App) paintTextLayer(hwnd uintptr) {
-	var ps w.Paint
-	screen := w.U("BeginPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
-	r := w.Client(hwnd)
-	if r.Width() < 1 || r.Height() < 1 {
-		w.U("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
-		return
+func premultiplyTextMask(pixels []byte, ink uintptr, opacity int) {
+	red := byte(ink)
+	green := byte(ink >> 8)
+	blue := byte(ink >> 16)
+	scale := byte(clamp(opacity, 0, 100) * 255 / 100)
+	for i := 0; i+3 < len(pixels); i += 4 {
+		coverage := max(pixels[i], max(pixels[i+1], pixels[i+2]))
+		alpha := byte(uint16(coverage) * uint16(scale) / 255)
+		pixels[i] = byte(uint16(blue) * uint16(alpha) / 255)
+		pixels[i+1] = byte(uint16(green) * uint16(alpha) / 255)
+		pixels[i+2] = byte(uint16(red) * uint16(alpha) / 255)
+		pixels[i+3] = alpha
 	}
+}
+
+func (a *App) renderTextLayer(x, y, width, height int) bool {
+	if a.textHwnd == 0 || width < 1 || height < 1 {
+		return false
+	}
+	screen := w.U("GetDC", 0)
+	if screen == 0 {
+		return false
+	}
+	defer w.U("ReleaseDC", 0, screen)
 	dc := w.G("CreateCompatibleDC", screen)
-	bmp := w.G("CreateCompatibleBitmap", screen, uintptr(r.Width()), uintptr(r.Height()))
+	if dc == 0 {
+		return false
+	}
+	defer w.G("DeleteDC", dc)
+	info := dibHeader{Size: uint32(unsafe.Sizeof(dibHeader{})), Width: int32(width), Height: -int32(height), Planes: 1, BitCount: 32}
+	var bits uintptr
+	bmp := w.G("CreateDIBSection", dc, uintptr(unsafe.Pointer(&info)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+	if bmp == 0 || bits == 0 {
+		return false
+	}
+	defer w.G("DeleteObject", bmp)
 	old := w.G("SelectObject", dc, bmp)
-	defer func() {
-		w.G("BitBlt", screen, 0, 0, uintptr(r.Width()), uintptr(r.Height()), dc, 0, 0, 0x00cc0020)
-		w.G("SelectObject", dc, old)
-		w.G("DeleteObject", bmp)
-		w.G("DeleteDC", dc)
-		w.U("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
-	}()
-	w.Fill(dc, r, transparentKey)
+	defer w.G("SelectObject", dc, old)
+	pixels := unsafe.Slice((*byte)(unsafe.Pointer(bits)), width*height*4)
+	clear(pixels)
 	w.G("SetBkMode", dc, 1)
 	if a.book != nil && len(a.view.Text) > 0 {
-		a.drawPageText(dc, a.pal(), r)
+		mask := a.pal()
+		mask.Ink = w.RGB(255, 255, 255)
+		a.drawPageText(dc, mask, w.Rect{Right: int32(width), Bottom: int32(height)})
 	}
+	w.G("GdiFlush")
+	premultiplyTextMask(pixels, a.pal().Ink, a.cfg.TextOpacity)
+	if a.smoke != nil {
+		a.smoke.rememberTextLayer(pixels, width, height)
+	}
+	destination := w.Point{X: int32(x), Y: int32(y)}
+	size := w.Size{CX: int32(width), CY: int32(height)}
+	source := w.Point{}
+	blend := blendFunction{Alpha: 255, Format: 1}
+	return w.U("UpdateLayeredWindow", a.textHwnd, screen, uintptr(unsafe.Pointer(&destination)), uintptr(unsafe.Pointer(&size)), dc, uintptr(unsafe.Pointer(&source)), 0, uintptr(unsafe.Pointer(&blend)), 2) != 0
 }
 
 func textProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
@@ -154,7 +198,9 @@ func textProc(hwnd uintptr, msg uint32, wp, lp uintptr) uintptr {
 	case w.WM_ERASEBKGND:
 		return 1
 	case w.WM_PAINT:
-		a.paintTextLayer(hwnd)
+		var ps w.Paint
+		w.U("BeginPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
+		w.U("EndPaint", hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	}
 	return w.U("DefWindowProcW", hwnd, uintptr(msg), wp, lp)
